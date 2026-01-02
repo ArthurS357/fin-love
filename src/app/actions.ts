@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
 import { SignJWT, jwtVerify } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { addMonths, isBefore } from 'date-fns'
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
 
@@ -87,7 +88,7 @@ export async function logoutUser() {
   redirect('/login')
 }
 
-// 4. Adicionar Transação
+// 4. Adicionar Transação (Com Recorrência)
 export async function addTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
@@ -96,15 +97,37 @@ export async function addTransaction(formData: FormData) {
   const amount = parseFloat(formData.get('amount') as string)
   const description = formData.get('description') as string
   const category = formData.get('category') as string || (type === 'INCOME' ? 'Receita' : 'Outros')
+  const isRecurring = formData.get('isRecurring') === 'on'
 
   if (isNaN(amount)) return { error: 'Valor inválido' }
 
-  await prisma.transaction.create({
-    data: { userId, type, amount, description, category, date: new Date() },
-  })
+  const date = new Date()
 
-  revalidatePath('/dashboard')
-  return { success: true }
+  try {
+    // 1. Cria a transação de hoje
+    await prisma.transaction.create({
+      data: { userId, type, amount, description, category, date },
+    })
+
+    // 2. Se for recorrente, cria o agendamento para o próximo mês
+    if (isRecurring) {
+      await prisma.recurringTransaction.create({
+        data: {
+          userId,
+          type,
+          amount,
+          description,
+          category,
+          nextRun: addMonths(date, 1) // Próxima em 1 mês
+        }
+      })
+    }
+
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (error) {
+    return { error: 'Erro ao salvar transação.' }
+  }
 }
 
 // 5. Atualizar Transação
@@ -274,7 +297,61 @@ export async function updatePasswordAction(formData: FormData) {
   }
 }
 
-// 13. Gerar Conselho IA (Gemini)
+// 13. Categorias: Listar
+export async function getCategoriesAction() {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Usuário não autenticado', data: [] };
+
+  try {
+    const categories = await prisma.category.findMany({
+      where: { userId },
+      orderBy: { name: 'asc' }
+    });
+    return { success: true, data: categories };
+  } catch (error) {
+    return { error: 'Erro ao buscar categorias', data: [] };
+  }
+}
+
+// 14. Categorias: Criar
+export async function createCategoryAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Usuário não autenticado' };
+
+  const name = formData.get('name') as string;
+  const color = formData.get('color') as string;
+  const icon = formData.get('icon') as string || 'Tag';
+
+  if (!name || !color) return { error: 'Preencha nome e cor.' };
+
+  try {
+    await prisma.category.create({
+      data: { userId, name, color, icon }
+    });
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Categoria criada!' };
+  } catch (error) {
+    return { error: 'Erro ao criar categoria.' };
+  }
+}
+
+// 15. Categorias: Deletar
+export async function deleteCategoryAction(id: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Usuário não autenticado' };
+
+  try {
+    await prisma.category.delete({
+      where: { id, userId }
+    });
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Categoria removida.' };
+  } catch (error) {
+    return { error: 'Erro ao remover categoria.' };
+  }
+}
+
+// 16. IA: Gerar Conselho
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
@@ -321,59 +398,53 @@ export async function generateFinancialAdviceAction() {
     
     return { success: true, message: result.response.text() }
   } catch (error) {
-    console.error(error)
     return { error: 'Erro na IA. Tente mais tarde.' }
   }
 }
 
-// 14. Categorias Personalizadas
-export async function getCategoriesAction() {
+// 17. Processar Recorrência (Automático)
+export async function checkRecurringTransactionsAction() {
   const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado', data: [] };
+  if (!userId) return;
 
   try {
-    const categories = await prisma.category.findMany({
-      where: { userId },
-      orderBy: { name: 'asc' }
+    const pending = await prisma.recurringTransaction.findMany({
+      where: {
+        userId,
+        active: true,
+        nextRun: { lte: new Date() }
+      }
     });
-    return { success: true, data: categories };
-  } catch (error) {
-    return { error: 'Erro ao buscar categorias', data: [] };
-  }
-}
 
-export async function createCategoryAction(formData: FormData) {
-  const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado' };
+    if (pending.length === 0) return;
 
-  const name = formData.get('name') as string;
-  const color = formData.get('color') as string;
-  const icon = formData.get('icon') as string || 'Tag';
+    for (const rec of pending) {
+      let runDate = new Date(rec.nextRun);
+      const now = new Date();
 
-  if (!name || !color) return { error: 'Preencha nome e cor.' };
+      while (isBefore(runDate, now) || runDate.getTime() === now.getTime()) {
+        await prisma.transaction.create({
+          data: {
+            userId,
+            type: rec.type,
+            amount: rec.amount,
+            description: `${rec.description} (Automático)`,
+            category: rec.category,
+            date: runDate
+          }
+        });
+        runDate = addMonths(runDate, 1);
+      }
 
-  try {
-    await prisma.category.create({
-      data: { userId, name, color, icon }
-    });
+      await prisma.recurringTransaction.update({
+        where: { id: rec.id },
+        data: { nextRun: runDate }
+      });
+    }
+    
     revalidatePath('/dashboard');
-    return { success: true, message: 'Categoria criada!' };
+    return { success: true, count: pending.length };
   } catch (error) {
-    return { error: 'Erro ao criar categoria (verifique se já existe).' };
-  }
-}
-
-export async function deleteCategoryAction(id: string) {
-  const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado' };
-
-  try {
-    await prisma.category.delete({
-      where: { id, userId } // Garante que só o dono pode deletar
-    });
-    revalidatePath('/dashboard');
-    return { success: true, message: 'Categoria removida.' };
-  } catch (error) {
-    return { error: 'Erro ao remover categoria.' };
+    console.error("Erro ao processar recorrentes:", error);
   }
 }

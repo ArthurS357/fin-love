@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react';
-import { X, ArrowUpCircle, ArrowDownCircle, Check, Loader2, Settings } from 'lucide-react';
+import { X, ArrowUpCircle, ArrowDownCircle, Check, Loader2, Settings, Repeat } from 'lucide-react';
 import { addTransaction, updateTransaction, getCategoriesAction } from '@/app/actions';
 import { toast } from 'sonner';
 import CategoryManagerModal from './CategoryManagerModal';
@@ -15,17 +15,17 @@ interface TransactionModalProps {
 export default function TransactionModal({ isOpen, onClose, initialData }: TransactionModalProps) {
   const [loading, setLoading] = useState(false);
   
-  // Estado do Formulário
+  // Estados do Formulário
   const [type, setType] = useState('EXPENSE');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
 
-  // Estado das Categorias
+  // Estados Auxiliares
   const [categories, setCategories] = useState<any[]>([]);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
 
-  // Carregar dados iniciais e categorias
   useEffect(() => {
     if (isOpen) {
       loadCategories();
@@ -35,21 +35,21 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
         setAmount(initialData.amount.toString());
         setDescription(initialData.description);
         setCategory(initialData.category);
+        setIsRecurring(false); // Edição não altera recorrência por enquanto
       } else {
-        // Reset
+        // Reset para nova transação
         setType('EXPENSE');
         setAmount('');
         setDescription('');
         setCategory('');
+        setIsRecurring(false);
       }
     }
   }, [isOpen, initialData]);
 
   const loadCategories = async () => {
     const res = await getCategoriesAction();
-    if (res.success) {
-      setCategories(res.data);
-    }
+    if (res.success) setCategories(res.data);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,6 +61,11 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
     formData.append('amount', amount);
     formData.append('description', description);
     formData.append('category', category);
+    
+    // Envia flag de recorrência apenas se marcado
+    if (isRecurring && !initialData) {
+      formData.append('isRecurring', 'on');
+    }
 
     let result;
     if (initialData) {
@@ -71,10 +76,10 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
     }
 
     if (result.success) {
-      toast.success(initialData ? 'Atualizado com sucesso!' : 'Lançamento adicionado!');
+      toast.success(initialData ? 'Atualizado!' : 'Lançamento salvo!');
       onClose();
     } else {
-      toast.error(result.error || 'Ocorreu um erro.');
+      toast.error(result.error || 'Erro ao salvar.');
     }
     setLoading(false);
   };
@@ -85,7 +90,6 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
         
-        {/* Container do Modal */}
         <div className="bg-[#1a1025] w-full max-w-md rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 relative">
           
           {/* Header */}
@@ -100,15 +104,13 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
 
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
             
-            {/* Seletor de Tipo */}
+            {/* Tipo */}
             <div className="grid grid-cols-2 gap-3 p-1 bg-[#130b20] rounded-2xl">
               <button
                 type="button"
                 onClick={() => setType('INCOME')}
                 className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
-                  type === 'INCOME' 
-                    ? 'bg-green-500/20 text-green-400 shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-300'
+                  type === 'INCOME' ? 'bg-green-500/20 text-green-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
                 <ArrowUpCircle size={18} /> Entrada
@@ -117,9 +119,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
                 type="button"
                 onClick={() => setType('EXPENSE')}
                 className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
-                  type === 'EXPENSE' 
-                    ? 'bg-red-500/20 text-red-400 shadow-sm' 
-                    : 'text-gray-500 hover:text-gray-300'
+                  type === 'EXPENSE' ? 'bg-red-500/20 text-red-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
                 <ArrowDownCircle size={18} /> Saída
@@ -138,7 +138,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full bg-[#130b20] text-white text-xl font-bold pl-11 pr-4 py-3.5 rounded-xl border border-gray-700 focus:border-pink-500 outline-none transition focus:ring-1 focus:ring-pink-500/30"
+                  className="w-full bg-[#130b20] text-white text-xl font-bold pl-11 pr-4 py-3.5 rounded-xl border border-gray-700 focus:border-pink-500 outline-none transition"
                 />
               </div>
             </div>
@@ -157,7 +157,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
                 />
               </div>
 
-              {/* Seletor de Categoria Inteligente */}
+              {/* Seletor Inteligente de Categoria */}
               <div>
                 <div className="flex justify-between items-center mb-1.5">
                   <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1">Categoria</label>
@@ -189,7 +189,26 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
               </div>
             </div>
 
-            {/* Botão Salvar */}
+            {/* Checkbox Recorrência (Apenas Novas Transações) */}
+            {!initialData && (
+              <div 
+                onClick={() => setIsRecurring(!isRecurring)}
+                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all select-none ${
+                  isRecurring 
+                    ? 'bg-purple-500/20 border-purple-500/50' 
+                    : 'bg-[#130b20] border-gray-700 hover:border-gray-600'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded border flex items-center justify-center transition ${isRecurring ? 'bg-purple-500 border-purple-500' : 'border-gray-500'}`}>
+                  {isRecurring && <Check size={12} className="text-white" />}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-300">
+                  <Repeat size={16} className={isRecurring ? "text-purple-400" : "text-gray-500"} />
+                  <span>Repetir todo mês (Assinatura)</span>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -203,13 +222,13 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
         </div>
       </div>
 
-      {/* Modal de Gerenciamento de Categorias (Aninhado) */}
+      {/* Modal de Gerenciamento de Categorias */}
       {showCategoryManager && (
         <CategoryManagerModal 
           isOpen={showCategoryManager} 
           onClose={() => {
             setShowCategoryManager(false);
-            loadCategories(); // Recarrega a lista ao fechar
+            loadCategories();
           }} 
         />
       )}

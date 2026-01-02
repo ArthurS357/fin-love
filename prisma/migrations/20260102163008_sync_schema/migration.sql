@@ -24,6 +24,21 @@ CREATE TABLE "Category" (
 );
 
 -- CreateTable
+CREATE TABLE "RecurringTransaction" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "description" TEXT NOT NULL,
+    "amount" REAL NOT NULL,
+    "type" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "frequency" TEXT NOT NULL DEFAULT 'MONTHLY',
+    "nextRun" DATETIME NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "userId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "RecurringTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "Transaction" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "amount" REAL NOT NULL,

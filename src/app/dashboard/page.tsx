@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { jwtVerify } from 'jose';
 import Dashboard from '@/components/Dashboard';
+import { checkRecurringTransactionsAction } from '@/app/actions'; // <--- Importante
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key');
 
@@ -27,14 +28,17 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // 1. Buscar dados do usuário (Incluindo savingsGoal)
+  // 1. Verificar recorrências pendentes (Gatilho Automático)
+  await checkRecurringTransactionsAction();
+
+  // 2. Buscar dados do utilizador
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       name: true,
       email: true,
       spendingLimit: true,
-      savingsGoal: true, // <--- CAMPO IMPORTANTE ADICIONADO
+      savingsGoal: true,
       partnerId: true,
       partner: {
         select: {
@@ -46,13 +50,13 @@ export default async function DashboardPage() {
     }
   });
 
-  // 2. Definir IDs para buscar transações
+  // 3. Definir IDs para buscar transações (usuário + parceiro)
   const userIds = [userId];
   if (user?.partnerId) {
     userIds.push(user.partnerId);
   }
 
-  // 3. Buscar transações
+  // 4. Buscar transações recentes
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: { in: userIds }
@@ -60,14 +64,14 @@ export default async function DashboardPage() {
     orderBy: { date: 'desc' },
   });
 
-  // Serialização dos dados
+  // Serialização dos dados (datas para string)
   const serializedTransactions = transactions.map(t => ({
     ...t,
     amount: t.amount,
     date: t.date.toISOString(),
   }));
 
-  // 4. Calcular o total da "Caixinha"
+  // 5. Calcular o total da "Caixinha"
   const totalSavings = transactions
     .filter(t => t.type === 'INVESTMENT')
     .reduce((acc, t) => acc + t.amount, 0);
@@ -80,7 +84,7 @@ export default async function DashboardPage() {
       partner={user?.partner}
       spendingLimit={user?.spendingLimit || 0}
       totalSavings={totalSavings}
-      savingsGoalName={user?.savingsGoal || "Caixinha dos Sonhos"} // <--- PROP ADICIONADA
+      savingsGoalName={user?.savingsGoal || "Caixinha dos Sonhos"}
     />
   );
 }

@@ -13,15 +13,16 @@ model User {
   password      String   
   name          String?
   spendingLimit Float?   @default(0)
-  categories    Category[]
-
   savingsGoal   String?  @default("Caixinha dos Sonhos")
 
-  partnerId     String?  @unique // Mantém unique para 1:1
+  // Relacionamentos
+  partnerId     String?  @unique
   partner       User?    @relation("Couple", fields: [partnerId], references: [id])
   partnerOf     User?    @relation("Couple")
 
-  transactions  Transaction[]
+  transactions          Transaction[]
+  categories            Category[]
+  recurringTransactions RecurringTransaction[] // Nova relação
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -30,15 +31,32 @@ model User {
 model Category {
   id          String   @id @default(cuid())
   name        String
-  color       String   // Ex: "#ef4444" ou "bg-red-500"
-  icon        String   // Nome do ícone (ex: "Gamepad")
+  color       String   
+  icon        String   
   
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt   DateTime @default(now())
 
-  @@unique([userId, name]) // Evitar categorias duplicadas para o mesmo usuário
+  @@unique([userId, name])
+}
+
+model RecurringTransaction {
+  id          String   @id @default(cuid())
+  description String
+  amount      Float
+  type        String   // 'INCOME', 'EXPENSE'
+  category    String
+  
+  frequency   String   @default("MONTHLY")
+  nextRun     DateTime 
+  active      Boolean  @default(true)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
 }
 
 model Transaction {
@@ -47,9 +65,7 @@ model Transaction {
   description String
   category    String
   date        DateTime @default(now())
-  
-  // Tipos atualizados para incluir Investimento
-  type        String   // 'INCOME', 'EXPENSE' ou 'INVESTMENT'
+  type        String   // 'INCOME', 'EXPENSE', 'INVESTMENT'
 
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

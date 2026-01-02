@@ -26,19 +26,23 @@ interface HomeTabProps {
   balance: number;
   pieData: any[];
   barData: any[];
+  privacyMode: boolean; // <--- Nova Prop
 }
 
 const COLORS = ['#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
 
-export default function HomeTab({ income, expense, balance, pieData, barData }: HomeTabProps) {
+export default function HomeTab({ income, expense, balance, pieData, barData, privacyMode }: HomeTabProps) {
   
-  const formatCurrency = (value: number) => 
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  // Função que respeita o modo privacidade
+  const formatValue = (value: number) => {
+    if (privacyMode) return '••••';
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* 1. Cards de Resumo - Scroll Horizontal no Mobile */}
+      {/* Cards de Resumo */}
       <div className="flex md:grid md:grid-cols-3 gap-4 overflow-x-auto pb-4 md:pb-0 snap-x snap-mandatory no-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
         
         {/* Card Saldo */}
@@ -49,7 +53,7 @@ export default function HomeTab({ income, expense, balance, pieData, barData }: 
           <div className="relative z-10">
             <p className="text-purple-200 text-sm font-medium mb-1">Saldo em Conta</p>
             <h3 className="text-3xl md:text-4xl font-bold text-white tracking-tight">
-              {formatCurrency(balance)}
+              {formatValue(balance)}
             </h3>
             <div className="mt-4 flex items-center gap-2 text-xs text-purple-300/60 bg-white/5 w-fit px-2 py-1 rounded-lg">
               <Activity size={14} />
@@ -67,7 +71,7 @@ export default function HomeTab({ income, expense, balance, pieData, barData }: 
             <span className="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded-md">Receitas</span>
           </div>
           <div>
-            <h3 className="text-xl md:text-2xl font-bold text-white">{formatCurrency(income)}</h3>
+            <h3 className="text-xl md:text-2xl font-bold text-white">{formatValue(income)}</h3>
           </div>
         </div>
 
@@ -80,13 +84,13 @@ export default function HomeTab({ income, expense, balance, pieData, barData }: 
             <span className="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded-md">Despesas</span>
           </div>
           <div>
-            <h3 className="text-xl md:text-2xl font-bold text-white">{formatCurrency(expense)}</h3>
+            <h3 className="text-xl md:text-2xl font-bold text-white">{formatValue(expense)}</h3>
           </div>
         </div>
       </div>
 
-      {/* 2. Área Gráfica */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Área Gráfica (com Blur no modo privacidade) */}
+      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 transition-all duration-300 ${privacyMode ? 'blur-sm opacity-50 pointer-events-none' : ''}`}>
         
         {/* Gráfico de Barras */}
         <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg min-h-[300px]">

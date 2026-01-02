@@ -3,7 +3,8 @@
 import { useState, useMemo } from 'react';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
-  Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu
+  Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
+  Eye, EyeOff // <--- Novos ícones
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -40,9 +41,12 @@ export default function Dashboard({
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   
+  // Estado do Modo Privacidade (Começa visível = false)
+  const [privacyMode, setPrivacyMode] = useState(false); 
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // Novo estado para o menu
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
   const transactions = useMemo(() => {
@@ -120,7 +124,7 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Nav Central Desktop - Centralizada Absolutamente */}
+          {/* Nav Central Desktop */}
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
@@ -131,7 +135,16 @@ export default function Dashboard({
           {/* Área Direita (Ações + Menu) */}
           <div className="flex items-center gap-3 md:gap-4 z-50 relative">
             
-            {/* Botão IA (Visível em Mobile e Desktop) */}
+            {/* Botão Modo Privacidade (Olhinho) */}
+            <button
+              onClick={() => setPrivacyMode(!privacyMode)}
+              className="p-2 text-purple-300 hover:text-white transition active:scale-95 hover:bg-white/5 rounded-full"
+              title={privacyMode ? "Mostrar valores" : "Esconder valores"}
+            >
+              {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+
+            {/* Botão IA */}
             <button
               onClick={() => setIsAIModalOpen(true)}
               className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
@@ -147,7 +160,7 @@ export default function Dashboard({
               <span>Novo</span>
             </button>
 
-            {/* MENU HAMBÚRGUER (3 Listras) */}
+            {/* MENU HAMBÚRGUER */}
             <div className="relative">
               <button 
                 onClick={() => setIsMenuOpen(!isMenuOpen)} 
@@ -159,9 +172,7 @@ export default function Dashboard({
               {/* Dropdown Menu */}
               {isMenuOpen && (
                 <>
-                  {/* Overlay transparente para fechar ao clicar fora */}
                   <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
-                  
                   <div className="absolute right-0 top-full mt-2 w-56 bg-[#1a1025] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                     <div className="p-4 border-b border-white/5 bg-[#1f1630]">
                       <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-0.5">Logado como</p>
@@ -195,18 +206,26 @@ export default function Dashboard({
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
 
-        {/* Header da Página (Saudação e Data) - Escondido no Perfil/Parceiro */}
         {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
-            <div className="w-full md:w-auto">
-              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
-                {activeTab === 'home' && 'Resumo Financeiro'}
-                {activeTab === 'goals' && 'Minhas Metas'}
-                {activeTab === 'history' && 'Extrato Detalhado'}
-              </h1>
-              <p className="text-gray-400 text-sm hidden md:block">
-                {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
-              </p>
+            <div className="w-full md:w-auto flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+                  {activeTab === 'home' && 'Resumo Financeiro'}
+                  {activeTab === 'goals' && 'Minhas Metas'}
+                  {activeTab === 'history' && 'Extrato Detalhado'}
+                </h1>
+                <p className="text-gray-400 text-sm hidden md:block">
+                  {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
+                </p>
+              </div>
+
+              {/* Ações Mobile */}
+              <div className="flex gap-2 md:hidden">
+                <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20 active:scale-95 transition">
+                  <Sparkles size={20} />
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
@@ -224,7 +243,15 @@ export default function Dashboard({
 
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
           {activeTab === 'home' && (
-            <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />
+            // Agora passamos o privacyMode para a HomeTab
+            <HomeTab 
+              income={income} 
+              expense={expense} 
+              balance={balance} 
+              pieData={pieData} 
+              barData={barData} 
+              privacyMode={privacyMode} 
+            />
           )}
           {activeTab === 'goals' && (
             <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
@@ -244,7 +271,7 @@ export default function Dashboard({
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* Menu Mobile Flutuante Otimizado (SEM Aba Perfil, agora está no menu superior) */}
+      {/* Menu Mobile Flutuante */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />

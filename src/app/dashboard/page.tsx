@@ -62,6 +62,7 @@ export default async function DashboardPage() {
       userId: { in: userIds }
     },
     orderBy: { date: 'desc' },
+    take: 100,
   });
 
   // Serialização dos dados (datas para string)

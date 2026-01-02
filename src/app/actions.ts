@@ -8,6 +8,15 @@ import bcrypt from 'bcryptjs'
 import { SignJWT, jwtVerify } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore } from 'date-fns'
+import { 
+  registerSchema, 
+  loginSchema, 
+  transactionSchema, 
+  categorySchema, 
+  partnerSchema, 
+  spendingLimitSchema, 
+  passwordSchema 
+} from '@/lib/schemas'
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
 
@@ -24,17 +33,30 @@ async function getUserId() {
   }
 }
 
-// 1. Registro
-export async function registerUser(prevState: any, formData: FormData) {
-  const name = formData.get('name') as string
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
+// Tipo para satisfazer o useActionState (Login/Registro)
+type ActionState = {
+  success: boolean
+  error: string
+}
 
-  if (!name || !email || !password) return { error: 'Preencha todos os campos.' }
+// ==========================================
+// AUTHENTICATION
+// ==========================================
+
+// 1. Registro (Corrigido para ActionState)
+export async function registerUser(prevState: any, formData: FormData): Promise<ActionState> {
+  const data = Object.fromEntries(formData)
+  const validation = registerSchema.safeParse(data)
+
+  if (!validation.success) {
+    return { success: false, error: validation.error.issues[0].message }
+  }
+
+  const { name, email, password } = validation.data
 
   try {
     const existingUser = await prisma.user.findUnique({ where: { email } })
-    if (existingUser) return { error: 'Email já em uso.' }
+    if (existingUser) return { success: false, error: 'Email já em uso.' }
 
     const hashedPassword = await bcrypt.hash(password, 10)
     const user = await prisma.user.create({
@@ -45,28 +67,36 @@ export async function registerUser(prevState: any, formData: FormData) {
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
-    return { success: true }
+    return { success: true, error: '' }
   } catch {
-    return { error: 'Erro ao criar conta.' }
+    return { success: false, error: 'Erro ao criar conta.' }
   }
 }
 
-// 2. Login
-export async function loginUser(prevState: any, formData: FormData) {
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
+// 2. Login (Corrigido para ActionState)
+export async function loginUser(prevState: any, formData: FormData): Promise<ActionState> {
+  const data = Object.fromEntries(formData)
+  const validation = loginSchema.safeParse(data)
+
+  if (!validation.success) {
+    return { success: false, error: validation.error.issues[0].message }
+  }
+
+  const { email, password } = validation.data
 
   try {
     const user = await prisma.user.findUnique({ where: { email } })
-    if (!user || !(await bcrypt.compare(password, user.password))) return { error: 'Credenciais inválidas.' }
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return { success: false, error: 'Credenciais inválidas.' }
+    }
 
     const token = await new SignJWT({ sub: user.id }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(JWT_SECRET)
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
-    return { success: true }
+    return { success: true, error: '' }
   } catch {
-    return { error: 'Erro ao entrar.' }
+    return { success: false, error: 'Erro ao entrar.' }
   }
 }
 
@@ -77,24 +107,30 @@ export async function logoutUser() {
   redirect('/login')
 }
 
-// 4. Adicionar Transação (Com Recorrência)
+// ==========================================
+// TRANSACTIONS
+// ==========================================
+
+// 4. Adicionar Transação
 export async function addTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
 
-  const type = formData.get('type') as string
-  const amount = parseFloat(formData.get('amount') as string)
-  const description = formData.get('description') as string
-  const category = formData.get('category') as string || 'Outros'
-  const isRecurring = formData.get('isRecurring') === 'on'
+  const rawData = Object.fromEntries(formData)
+  const validation = transactionSchema.safeParse(rawData)
 
-  if (isNaN(amount)) return { error: 'Valor inválido' }
+  if (!validation.success) {
+    return { error: validation.error.issues[0].message }
+  }
+
+  const { type, amount, description, category } = validation.data
+  const isRecurring = formData.get('isRecurring') === 'on' 
 
   const date = new Date()
 
   try {
     await prisma.transaction.create({
-      data: { userId, type, amount, description, category, date },
+      data: { userId, type: type as any, amount, description, category, date },
     })
 
     if (isRecurring) {
@@ -110,6 +146,7 @@ export async function addTransaction(formData: FormData) {
       })
     }
 
+    await checkBadgesAction()
     revalidatePath('/dashboard')
     return { success: true }
   } catch (error) {
@@ -123,14 +160,18 @@ export async function updateTransaction(formData: FormData) {
   if (!userId) return { error: 'Auth error' }
 
   const id = formData.get('id') as string
-  const type = formData.get('type') as string
-  const amount = parseFloat(formData.get('amount') as string)
-  const description = formData.get('description') as string
-  const category = formData.get('category') as string
+  const rawData = Object.fromEntries(formData)
+  const validation = transactionSchema.safeParse(rawData)
+
+  if (!validation.success) {
+    return { error: validation.error.issues[0].message }
+  }
+
+  const { type, amount, description, category } = validation.data
 
   await prisma.transaction.update({
     where: { id },
-    data: { type, amount, description, category },
+    data: { type: type as any, amount, description, category },
   })
 
   revalidatePath('/dashboard')
@@ -146,37 +187,46 @@ export async function deleteTransaction(id: string) {
   return { success: true }
 }
 
-// 7. Link Partner (CORRIGIDO)
+// ==========================================
+// PARTNER & PROFILE
+// ==========================================
+
+// 7. Link Partner
 export async function linkPartnerAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  const email = formData.get('email') as string
+  
+  const validation = partnerSchema.safeParse({ email: formData.get('email') })
+  if (!validation.success) return { error: validation.error.issues[0].message }
+
+  const { email } = validation.data
 
   try {
     const me = await prisma.user.findUnique({ where: { id: userId } })
-    if (!me) return { error: 'Usuário não encontrado.' } // <--- Correção aqui
+    if (!me) return { error: 'Usuário não encontrado.' }
 
     const partner = await prisma.user.findUnique({ where: { email } })
-
-    // Agora 'me' é seguro de usar
-    if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Inválido.' }
+    
+    if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Parceiro inválido ou já conectado.' }
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: me.id }, data: { partnerId: partner.id } }),
       prisma.user.update({ where: { id: partner.id }, data: { partnerId: me.id } })
     ])
+    
+    await checkBadgesAction()
     revalidatePath('/dashboard')
     return { success: true, message: 'Conectado!' }
   } catch { return { error: 'Erro ao conectar.' } }
 }
 
-// 8. Unlink Partner (CORRIGIDO)
+// 8. Unlink Partner
 export async function unlinkPartnerAction() {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
   try {
     const me = await prisma.user.findUnique({ where: { id: userId } })
-    if (!me || !me.partnerId) return { error: 'Sem conexão ativa.' } // <--- Correção aqui
+    if (!me || !me.partnerId) return { error: 'Sem conexão ativa.' }
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: userId }, data: { partnerId: null } }),
@@ -187,61 +237,72 @@ export async function unlinkPartnerAction() {
   } catch { return { error: 'Erro.' } }
 }
 
-// 9. Update Limit
+// 9. Update Limit (CORRIGIDO: ADICIONADO MESSAGE)
 export async function updateSpendingLimitAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  const limit = parseFloat(formData.get('limit') as string)
-  await prisma.user.update({ where: { id: userId }, data: { spendingLimit: limit } })
+
+  const validation = spendingLimitSchema.safeParse({ limit: formData.get('limit') })
+  if (!validation.success) return { error: validation.error.issues[0].message }
+  
+  await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
   revalidatePath('/dashboard')
-  return { success: true }
+  // Correção: Agora retorna message
+  return { success: true, message: 'Limite atualizado!' }
 }
 
-// 10. Add Savings
+// 10. Add Savings (CORRIGIDO: ADICIONADO MESSAGE)
 export async function addSavingsAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
+  
   const amount = parseFloat(formData.get('amount') as string)
+  if (isNaN(amount) || amount <= 0) return { error: 'Valor inválido.' }
+  
   const description = formData.get('description') as string || 'Caixinha'
-
+  
   await prisma.transaction.create({
     data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
   })
+  
+  await checkBadgesAction()
   revalidatePath('/dashboard')
-  return { success: true }
+  return { success: true, message: 'Valor guardado!' }
 }
 
-// 11. Update Goal Name (CORRIGIDO)
+// 11. Update Goal Name (CORRIGIDO: ADICIONADO MESSAGE)
 export async function updateSavingsGoalNameAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
   const name = formData.get('name') as string
+  if (!name) return { error: 'Nome inválido' }
 
   const me = await prisma.user.findUnique({ where: { id: userId } })
-  if (!me) return { error: 'Usuário não encontrado' } // <--- Correção aqui
-
+  if (!me) return { error: 'Usuário não encontrado' }
+  
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
-
-  // Agora é seguro acessar me.partnerId
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
   }
-
+  
   revalidatePath('/dashboard')
-  return { success: true }
+  return { success: true, message: 'Meta atualizada!' }
 }
 
 // 12. Update Password
 export async function updatePasswordAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  const current = formData.get('currentPassword') as string
-  const newPass = formData.get('newPassword') as string
+
+  const validation = passwordSchema.safeParse(Object.fromEntries(formData))
+  if (!validation.success) return { error: validation.error.issues[0].message }
+
+  const { currentPassword, newPassword } = validation.data
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (!user || !(await bcrypt.compare(current, user.password))) return { error: 'Senha incorreta.' }
+  if (!user || !(await bcrypt.compare(currentPassword, user.password))) return { error: 'Senha atual incorreta.' }
 
-  const hashed = await bcrypt.hash(newPass, 10)
+  const hashed = await bcrypt.hash(newPassword, 10)
   await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
   return { success: true, message: 'Senha atualizada!' }
 }
@@ -279,29 +340,27 @@ export async function getCategoriesAction() {
   return { success: true, data: categories };
 }
 
-// 15. Categorias: Criar
+// 15. Categorias: Criar (CORRIGIDO: ADICIONADO MESSAGE)
 export async function createCategoryAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
 
-  const name = formData.get('name') as string;
-  const color = formData.get('color') as string;
-  
-  // CORREÇÃO AQUI: Adicionado " || 'Tag'" para garantir que nunca seja nulo/vazio
-  const icon = (formData.get('icon') as string) || 'Tag'; 
+  const rawData = Object.fromEntries(formData);
+  const validation = categorySchema.safeParse(rawData);
 
-  if (!name || !color) return { error: 'Preencha nome e cor.' };
+  if (!validation.success) {
+    return { error: validation.error.issues[0].message };
+  }
+
+  const { name, color, icon } = validation.data;
+  const finalIcon = icon || 'Tag'; 
 
   try {
-    await prisma.category.create({
-      data: { userId, name, color, icon } // Agora 'icon' tem sempre valor
-    });
+    await prisma.category.create({ data: { userId, name, color, icon: finalIcon } });
+    await checkBadgesAction()
     revalidatePath('/dashboard');
-    return { success: true };
-  } catch (error) {
-    console.error("Erro ao criar categoria:", error);
-    return { error: 'Erro ao criar categoria.' };
-  }
+    return { success: true, message: 'Categoria criada!' };
+  } catch { return { error: 'Erro ao criar categoria.' }; }
 }
 
 // 16. Categorias: Deletar
@@ -313,7 +372,7 @@ export async function deleteCategoryAction(id: string) {
   return { success: true };
 }
 
-// 17. Processar Recorrência (Automático)
+// 17. Processar Recorrência
 export async function checkRecurringTransactionsAction() {
   const userId = await getUserId();
   if (!userId) return;
@@ -331,7 +390,7 @@ export async function checkRecurringTransactionsAction() {
         await prisma.transaction.create({
           data: {
             userId,
-            type: rec.type,
+            type: rec.type as any,
             amount: rec.amount,
             description: `${rec.description} (Auto)`,
             category: rec.category,
@@ -346,12 +405,13 @@ export async function checkRecurringTransactionsAction() {
   } catch (err) { console.error(err) }
 }
 
-// 18. Gamificação: Verificar Medalhas 
+// 18. Gamificação
 const BADGES_RULES = [
   { code: 'FIRST_TRX', name: 'Primeiro Passo', desc: 'Criou a primeira transação', icon: '🚀' },
   { code: 'SAVER_1', name: 'Poupador Iniciante', desc: 'Guardou dinheiro na caixinha', icon: '🐷' },
   { code: 'COUPLE_GOALS', name: 'Dupla Dinâmica', desc: 'Conectou com o parceiro', icon: '👩‍❤️‍👨' },
   { code: 'BIG_SAVER', name: 'Magnata', desc: 'Acumulou mais de R$ 1.000', icon: '💎' },
+  { code: 'CAT_MASTER', name: 'Organizado', desc: 'Criou uma categoria personalizada', icon: '🏷️' },
 ];
 
 export async function checkBadgesAction() {
@@ -361,64 +421,42 @@ export async function checkBadgesAction() {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { 
-        transactions: true, 
-        badges: true,
-        partner: true 
-      }
+      include: { transactions: true, badges: true, categories: true }
     });
 
     if (!user) return;
 
-    const earnedBadges = user.badges.map(b => b.code);
+    const earnedCodes = user.badges.map(b => b.code);
     const newBadges = [];
 
-    // 1. Regra: Primeira Transação
-    if (user.transactions.length > 0 && !earnedBadges.includes('FIRST_TRX')) {
+    if (user.transactions.length > 0 && !earnedCodes.includes('FIRST_TRX')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'FIRST_TRX')!);
     }
-
-    // 2. Regra: Conectou Parceiro
-    if (user.partnerId && !earnedBadges.includes('COUPLE_GOALS')) {
+    if (user.partnerId && !earnedCodes.includes('COUPLE_GOALS')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'COUPLE_GOALS')!);
     }
-
-    // 3. Regra: Guardou Dinheiro (Investimento)
     const hasInvestment = user.transactions.some(t => t.type === 'INVESTMENT');
-    if (hasInvestment && !earnedBadges.includes('SAVER_1')) {
+    if (hasInvestment && !earnedCodes.includes('SAVER_1')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
-
-    // 4. Regra: Acumulou 1000+
-    const totalSaved = user.transactions
-      .filter(t => t.type === 'INVESTMENT')
-      .reduce((acc, t) => acc + t.amount, 0);
-
-    if (totalSaved >= 1000 && !earnedBadges.includes('BIG_SAVER')) {
+    const totalSaved = user.transactions.filter(t => t.type === 'INVESTMENT').reduce((acc, t) => acc + t.amount, 0);
+    if (totalSaved >= 1000 && !earnedCodes.includes('BIG_SAVER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
     }
-
-    // Salvar novas medalhas
-    for (const badge of newBadges) {
-      await prisma.badge.create({
-        data: {
-          userId,
-          code: badge.code,
-          name: badge.name,
-          description: badge.desc,
-          icon: badge.icon
-        }
-      });
+    if (user.categories.length > 0 && !earnedCodes.includes('CAT_MASTER')) {
+      newBadges.push(BADGES_RULES.find(b => b.code === 'CAT_MASTER')!);
     }
 
     if (newBadges.length > 0) {
+      for (const badge of newBadges) {
+        await prisma.badge.create({
+          data: { userId, code: badge.code, name: badge.name, description: badge.desc, icon: badge.icon }
+        });
+      }
       revalidatePath('/dashboard');
       return { success: true, newBadges };
     }
-
-  } catch (error) {
-    console.error("Erro na gamificação", error);
-  }
+  } catch (error) { console.error("Erro gamificação:", error); }
 }
 
 export async function getBadgesAction() {

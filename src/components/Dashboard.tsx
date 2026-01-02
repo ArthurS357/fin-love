@@ -10,7 +10,6 @@ import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
-// Componentes Modulares
 import HomeTab from './tabs/HomeTab';
 import HistoryTab from './tabs/HistoryTab';
 import PartnerTab from './tabs/PartnerTab';
@@ -41,12 +40,10 @@ export default function Dashboard({
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // Estados dos Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  // --- Processamento de Dados ---
   const transactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -83,7 +80,6 @@ export default function Dashboard({
     { name: 'Saídas', valor: expense },
   ];
 
-  // --- Handlers ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
 
   const handleEdit = (t: any) => {
@@ -104,18 +100,18 @@ export default function Dashboard({
   };
 
   return (
-    <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans pb-28 md:pb-10 relative overflow-hidden">
+    <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans relative overflow-hidden selection:bg-pink-500/30">
 
       {/* Background Ambience */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-      {/* Header Desktop */}
-      <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/70 border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
+      {/* Header Desktop & Mobile Otimizado */}
+      <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/80 border-b border-white/5 supports-[backdrop-filter]:bg-[#130b20]/60">
+        <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
 
           {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveTab('home')}>
+          <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform" onClick={() => setActiveTab('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
               <Heart size={28} className="text-pink-500 fill-pink-500/20 group-hover:scale-110 transition-transform duration-300" />
@@ -123,7 +119,7 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Nav Central */}
+          {/* Nav Central Desktop */}
           <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
@@ -135,7 +131,6 @@ export default function Dashboard({
           {/* User Area */}
           <div className="flex items-center gap-4">
             
-            {/* Botão IA (Desktop) */}
             <button
               onClick={() => setIsAIModalOpen(true)}
               className="hidden md:flex items-center gap-2 bg-gradient-to-r from-purple-700 to-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:brightness-110 transition shadow-[0_0_15px_rgba(124,58,237,0.3)] hover:scale-105 active:scale-95"
@@ -162,9 +157,9 @@ export default function Dashboard({
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-2 relative z-10">
+      {/* Main com padding extra no bottom (mobile) */}
+      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
 
-        {/* Controle de Data (Oculto em Perfil/Parceiro) */}
         {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
             <div className="w-full md:w-auto flex justify-between items-center">
@@ -179,12 +174,11 @@ export default function Dashboard({
                 </p>
               </div>
 
-              {/* Ações Mobile */}
               <div className="flex gap-2 md:hidden">
-                <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20">
+                <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20 active:scale-95 transition">
                   <Sparkles size={20} />
                 </button>
-                <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5">
+                <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5 active:scale-95 transition">
                   <LogOut size={20} />
                 </button>
               </div>
@@ -203,7 +197,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* Renderização das Abas */}
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
           {activeTab === 'home' && (
             <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />
@@ -223,32 +216,32 @@ export default function Dashboard({
         </div>
       </main>
 
-      {/* Modais Globais */}
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* Menu Mobile Inferior */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-full max-w-[360px]">
-        <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] px-3 py-3 flex justify-between items-end">
-          <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={20} />} label="Início" />
-          <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={20} />} label="Metas" />
+      {/* Menu Mobile Flutuante Otimizado */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[92%] max-w-[380px]">
+        <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-4 py-3 flex justify-between items-end">
+          <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
+          <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
           
-          <div className="relative -top-6 mx-1">
-            <button onClick={handleOpenNew} className="bg-gradient-to-t from-pink-600 to-purple-600 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_20px_rgba(236,72,153,0.5)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group">
-              <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300" />
+          <div className="relative -top-8 mx-1">
+            <button 
+              onClick={handleOpenNew} 
+              className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
+            >
+              <Plus size={28} strokeWidth={2.5} className="group-hover:rotate-90 transition-transform" />
             </button>
           </div>
           
-          <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={20} />} label="Extrato" />
-          <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={20} />} label="Nós" />
-          <NavIcon active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<UserIcon size={20} />} label="Perfil" />
+          <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={22} />} label="Extrato" />
+          <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={22} />} label="Nós" />
         </nav>
       </div>
     </div>
   );
 }
 
-// Sub-componentes
 function TabButton({ active, onClick, label, icon }: any) {
   return (
     <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>

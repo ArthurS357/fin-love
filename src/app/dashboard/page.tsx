@@ -5,7 +5,11 @@ import { jwtVerify } from 'jose';
 import Dashboard from '@/components/Dashboard';
 import { checkRecurringTransactionsAction } from '@/app/actions'; // <--- Importante
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key');
+const secretStr = process.env.JWT_SECRET;
+if (!secretStr) {
+  throw new Error('CONFIG ERROR: JWT_SECRET ausente.');
+}
+const JWT_SECRET = new TextEncoder().encode(secretStr);
 
 async function getUserFromToken() {
   const cookieStore = await cookies();

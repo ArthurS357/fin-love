@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL") // Usa o Pool para performance
+  directUrl = env("POSTGRES_URL_NON_POOLING") // Usa direta para migrações
 }
 
 model User {

@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
+const secretStr = process.env.JWT_SECRET;
+if (!secretStr) throw new Error('JWT_SECRET não definida no ambiente.');
+const JWT_SECRET = new TextEncoder().encode(secretStr);
 
 export async function middleware(request: NextRequest) {
   const token = request.cookies.get('token')?.value

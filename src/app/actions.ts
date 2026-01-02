@@ -8,17 +8,19 @@ import bcrypt from 'bcryptjs'
 import { SignJWT, jwtVerify } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore } from 'date-fns'
-import { 
-  registerSchema, 
-  loginSchema, 
-  transactionSchema, 
-  categorySchema, 
-  partnerSchema, 
-  spendingLimitSchema, 
-  passwordSchema 
+import {
+  registerSchema,
+  loginSchema,
+  transactionSchema,
+  categorySchema,
+  partnerSchema,
+  spendingLimitSchema,
+  passwordSchema
 } from '@/lib/schemas'
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
+const secretStr = process.env.JWT_SECRET;
+if (!secretStr) throw new Error('JWT_SECRET não definida nas variáveis de ambiente.');
+const JWT_SECRET = new TextEncoder().encode(secretStr);
 
 // Helper: Obter ID do Usuário
 async function getUserId() {
@@ -124,7 +126,7 @@ export async function addTransaction(formData: FormData) {
   }
 
   const { type, amount, description, category } = validation.data
-  const isRecurring = formData.get('isRecurring') === 'on' 
+  const isRecurring = formData.get('isRecurring') === 'on'
 
   const date = new Date()
 
@@ -195,7 +197,7 @@ export async function deleteTransaction(id: string) {
 export async function linkPartnerAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  
+
   const validation = partnerSchema.safeParse({ email: formData.get('email') })
   if (!validation.success) return { error: validation.error.issues[0].message }
 
@@ -206,14 +208,14 @@ export async function linkPartnerAction(formData: FormData) {
     if (!me) return { error: 'Usuário não encontrado.' }
 
     const partner = await prisma.user.findUnique({ where: { email } })
-    
+
     if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Parceiro inválido ou já conectado.' }
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: me.id }, data: { partnerId: partner.id } }),
       prisma.user.update({ where: { id: partner.id }, data: { partnerId: me.id } })
     ])
-    
+
     await checkBadgesAction()
     revalidatePath('/dashboard')
     return { success: true, message: 'Conectado!' }
@@ -244,7 +246,7 @@ export async function updateSpendingLimitAction(formData: FormData) {
 
   const validation = spendingLimitSchema.safeParse({ limit: formData.get('limit') })
   if (!validation.success) return { error: validation.error.issues[0].message }
-  
+
   await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
   revalidatePath('/dashboard')
   // Correção: Agora retorna message
@@ -255,16 +257,16 @@ export async function updateSpendingLimitAction(formData: FormData) {
 export async function addSavingsAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  
+
   const amount = parseFloat(formData.get('amount') as string)
   if (isNaN(amount) || amount <= 0) return { error: 'Valor inválido.' }
-  
+
   const description = formData.get('description') as string || 'Caixinha'
-  
+
   await prisma.transaction.create({
     data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
   })
-  
+
   await checkBadgesAction()
   revalidatePath('/dashboard')
   return { success: true, message: 'Valor guardado!' }
@@ -279,12 +281,12 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
 
   const me = await prisma.user.findUnique({ where: { id: userId } })
   if (!me) return { error: 'Usuário não encontrado' }
-  
+
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
   }
-  
+
   revalidatePath('/dashboard')
   return { success: true, message: 'Meta atualizada!' }
 }
@@ -353,7 +355,7 @@ export async function createCategoryAction(formData: FormData) {
   }
 
   const { name, color, icon } = validation.data;
-  const finalIcon = icon || 'Tag'; 
+  const finalIcon = icon || 'Tag';
 
   try {
     await prisma.category.create({ data: { userId, name, color, icon: finalIcon } });

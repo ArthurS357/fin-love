@@ -3,27 +3,34 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Home, Heart, ChevronLeft, ChevronRight, Calendar, 
-  Clock, Plus, Target 
+  Clock, Plus, Target, LogOut // Importar LogOut
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { deleteTransaction } from '@/app/actions';
-import { toast } from 'sonner'; // Importar toast
+import { deleteTransaction, logoutUser } from '@/app/actions'; // Importar logoutUser
+import { toast } from 'sonner';
 
-// Componentes Modulares
+// ... (Importações dos componentes Tabs e Modal mantidas)
 import HomeTab from './tabs/HomeTab';
 import HistoryTab from './tabs/HistoryTab';
 import PartnerTab from './tabs/PartnerTab';
 import GoalsTab from './tabs/GoalsTab';
 import TransactionModal from './modals/TransactionModal';
 
-export default function Dashboard({ initialTransactions }: { initialTransactions: any[] }) {
+// Atualizar a interface para receber userName
+interface DashboardProps {
+  initialTransactions: any[];
+  userName: string;
+}
+
+export default function Dashboard({ initialTransactions, userName }: DashboardProps) {
+  // ... (Estados e lógica mantidos iguais)
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  // --- Lógica de Dados (Mantida) ---
+  // ... (Memos transactions, monthlyTransactions, income, expense, balance, pieData mantidos)
   const transactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -52,35 +59,33 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
     { name: 'Saídas', valor: expense },
   ];
 
-  // --- Funções Auxiliares Melhoradas ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
-  
-  const handleEdit = (t: any) => { 
-    setEditingTransaction(t); 
-    setIsModalOpen(true); 
-  };
-  
+  const handleEdit = (t: any) => { setEditingTransaction(t); setIsModalOpen(true); };
   const handleDelete = async (id: string) => { 
-    // Usando toast com promessa para feedback visual incrível
     toast.promise(deleteTransaction(id), {
-      loading: 'Excluindo registro...',
-      success: 'Transação removida com sucesso!',
-      error: 'Erro ao excluir transação.'
+      loading: 'Excluindo...',
+      success: 'Removido!',
+      error: 'Erro ao excluir.'
     });
+  };
+
+  // Nova função para lidar com o Logout
+  const handleLogout = async () => {
+    await logoutUser();
   };
 
   return (
     <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans pb-28 md:pb-10 relative overflow-hidden">
       
-      {/* Background Gradients */}
+      {/* Backgrounds mantidos */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-      {/* 1. Header Desktop */}
+      {/* HEADER DESKTOP ATUALIZADO */}
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/70 border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
           
-          {/* LOGO ATUALIZADA - Coração */}
+          {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveTab('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
@@ -91,20 +96,37 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
           
           {/* Navegação Central */}
           <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
-             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
+             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Geral" icon={<Home size={18} />} />
              <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
-             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Lançamentos" icon={<Clock size={18} />} />
+             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
              <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
-          {/* Ações Direita */}
+          {/* Área do Usuário (Direita) */}
           <div className="flex items-center gap-4">
+            
+            {/* Saudação e Logout */}
+            <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">
+              <div className="text-right">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Olá,</p>
+                <p className="text-sm font-bold text-white leading-none">{userName}</p>
+              </div>
+              <button 
+                onClick={handleLogout}
+                className="p-2 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-full transition-colors"
+                title="Sair"
+              >
+                <LogOut size={20} />
+              </button>
+            </div>
+
+            {/* Botão Nova Transação */}
             <button 
               onClick={handleOpenNew}
               className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95"
             >
               <Plus size={18} strokeWidth={3} /> 
-              <span>Nova Transação</span>
+              <span>Novo</span>
             </button>
           </div>
         </div>
@@ -112,21 +134,34 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-2 relative z-10">
         
-        {/* Controle de Data */}
+        {/* Controle de Data e Cabeçalho Mobile */}
         {activeTab !== 'partner' && (
-          <div className="flex justify-between items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
-                {activeTab === 'home' && 'Resumo Financeiro'}
-                {activeTab === 'goals' && 'Minhas Metas'}
-                {activeTab === 'history' && 'Extrato Detalhado'}
-              </h1>
-              <p className="text-gray-400 text-sm">
-                {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
-              </p>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
+            
+            {/* Título e Saudação Mobile */}
+            <div className="w-full md:w-auto flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+                  {activeTab === 'home' && 'Resumo Financeiro'}
+                  {activeTab === 'goals' && 'Minhas Metas'}
+                  {activeTab === 'history' && 'Extrato Detalhado'}
+                </h1>
+                <p className="text-gray-400 text-sm hidden md:block">
+                  {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
+                </p>
+              </div>
+              
+              {/* Botão de Logout Mobile (só aparece em telas pequenas) */}
+              <button 
+                onClick={handleLogout}
+                className="md:hidden p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full"
+              >
+                <LogOut size={20} />
+              </button>
             </div>
 
-            <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
+            {/* Seletor de Data */}
+            <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
                <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronLeft size={18} /></button>
                <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
                   <Calendar size={14} className="text-purple-400" />
@@ -139,6 +174,7 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
           </div>
         )}
 
+        {/* ... (Conteúdo das Abas e Modal e Nav Mobile mantidos) */}
         <div className="transition-all duration-500 ease-out">
             {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
             {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
@@ -150,7 +186,7 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
 
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
 
-      {/* Menu Mobile */}
+      {/* Menu Mobile Inferior */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-full max-w-[340px]">
         <nav className="relative bg-[#1a1025]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] px-4 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
@@ -172,7 +208,7 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
   );
 }
 
-// Componentes auxiliares (TabButton, NavIcon) mantêm-se iguais ou ajustados levemente para cores pink/purple
+// ... (Componentes TabButton e NavIcon mantidos)
 function TabButton({ active, onClick, label, icon }: any) {
     return (
       <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>

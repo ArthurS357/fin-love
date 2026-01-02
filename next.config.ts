@@ -4,7 +4,7 @@ import withPWAInit from "@ducanh2912/next-pwa";
 const withPWA = withPWAInit({
   dest: "public",
   cacheOnFrontEndNav: true,
-  aggressiveFrontEndNavCaching: false, // Mantém false para evitar o crash de memória no build
+  aggressiveFrontEndNavCaching: false, // Essencial para evitar o crash
   reloadOnOnline: true,
   disable: process.env.NODE_ENV === "development",
   workboxOptions: {
@@ -15,8 +15,10 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   reactCompiler: true,
   poweredByHeader: false,
-  // Removemos o bloco 'experimental' que causava o erro de TypeScript.
-  // A flag '--webpack' no package.json já garante que o Turbopack não rode.
+  
+  // Otimização para build (reduz uso de memória)
+  productionBrowserSourceMaps: false,
+
   async headers() {
     return [
       {

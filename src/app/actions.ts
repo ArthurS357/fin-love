@@ -157,7 +157,7 @@ export async function linkPartnerAction(formData: FormData) {
     if (!me) return { error: 'Usuário não encontrado.' } // <--- Correção aqui
 
     const partner = await prisma.user.findUnique({ where: { email } })
-    
+
     // Agora 'me' é seguro de usar
     if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Inválido.' }
 
@@ -203,7 +203,7 @@ export async function addSavingsAction(formData: FormData) {
   if (!userId) return { error: 'Auth error' }
   const amount = parseFloat(formData.get('amount') as string)
   const description = formData.get('description') as string || 'Caixinha'
-  
+
   await prisma.transaction.create({
     data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
   })
@@ -216,17 +216,17 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
   const name = formData.get('name') as string
-  
+
   const me = await prisma.user.findUnique({ where: { id: userId } })
   if (!me) return { error: 'Usuário não encontrado' } // <--- Correção aqui
-  
+
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
-  
+
   // Agora é seguro acessar me.partnerId
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
   }
-  
+
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -286,13 +286,22 @@ export async function createCategoryAction(formData: FormData) {
 
   const name = formData.get('name') as string;
   const color = formData.get('color') as string;
-  const icon = formData.get('icon') as string;
+  
+  // CORREÇÃO AQUI: Adicionado " || 'Tag'" para garantir que nunca seja nulo/vazio
+  const icon = (formData.get('icon') as string) || 'Tag'; 
+
+  if (!name || !color) return { error: 'Preencha nome e cor.' };
 
   try {
-    await prisma.category.create({ data: { userId, name, color, icon } });
+    await prisma.category.create({
+      data: { userId, name, color, icon } // Agora 'icon' tem sempre valor
+    });
     revalidatePath('/dashboard');
     return { success: true };
-  } catch { return { error: 'Erro ao criar categoria.' }; }
+  } catch (error) {
+    console.error("Erro ao criar categoria:", error);
+    return { error: 'Erro ao criar categoria.' };
+  }
 }
 
 // 16. Categorias: Deletar
@@ -335,4 +344,85 @@ export async function checkRecurringTransactionsAction() {
     }
     if (pending.length > 0) revalidatePath('/dashboard');
   } catch (err) { console.error(err) }
+}
+
+// 18. Gamificação: Verificar Medalhas 
+const BADGES_RULES = [
+  { code: 'FIRST_TRX', name: 'Primeiro Passo', desc: 'Criou a primeira transação', icon: '🚀' },
+  { code: 'SAVER_1', name: 'Poupador Iniciante', desc: 'Guardou dinheiro na caixinha', icon: '🐷' },
+  { code: 'COUPLE_GOALS', name: 'Dupla Dinâmica', desc: 'Conectou com o parceiro', icon: '👩‍❤️‍👨' },
+  { code: 'BIG_SAVER', name: 'Magnata', desc: 'Acumulou mais de R$ 1.000', icon: '💎' },
+];
+
+export async function checkBadgesAction() {
+  const userId = await getUserId();
+  if (!userId) return;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { 
+        transactions: true, 
+        badges: true,
+        partner: true 
+      }
+    });
+
+    if (!user) return;
+
+    const earnedBadges = user.badges.map(b => b.code);
+    const newBadges = [];
+
+    // 1. Regra: Primeira Transação
+    if (user.transactions.length > 0 && !earnedBadges.includes('FIRST_TRX')) {
+      newBadges.push(BADGES_RULES.find(b => b.code === 'FIRST_TRX')!);
+    }
+
+    // 2. Regra: Conectou Parceiro
+    if (user.partnerId && !earnedBadges.includes('COUPLE_GOALS')) {
+      newBadges.push(BADGES_RULES.find(b => b.code === 'COUPLE_GOALS')!);
+    }
+
+    // 3. Regra: Guardou Dinheiro (Investimento)
+    const hasInvestment = user.transactions.some(t => t.type === 'INVESTMENT');
+    if (hasInvestment && !earnedBadges.includes('SAVER_1')) {
+      newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
+    }
+
+    // 4. Regra: Acumulou 1000+
+    const totalSaved = user.transactions
+      .filter(t => t.type === 'INVESTMENT')
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    if (totalSaved >= 1000 && !earnedBadges.includes('BIG_SAVER')) {
+      newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
+    }
+
+    // Salvar novas medalhas
+    for (const badge of newBadges) {
+      await prisma.badge.create({
+        data: {
+          userId,
+          code: badge.code,
+          name: badge.name,
+          description: badge.desc,
+          icon: badge.icon
+        }
+      });
+    }
+
+    if (newBadges.length > 0) {
+      revalidatePath('/dashboard');
+      return { success: true, newBadges };
+    }
+
+  } catch (error) {
+    console.error("Erro na gamificação", error);
+  }
+}
+
+export async function getBadgesAction() {
+  const userId = await getUserId();
+  if (!userId) return [];
+  return await prisma.badge.findMany({ where: { userId }, orderBy: { awardedAt: 'desc' } });
 }

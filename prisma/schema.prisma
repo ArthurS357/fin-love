@@ -22,6 +22,7 @@ model User {
   transactions          Transaction[]
   categories            Category[]              // Relacionamento com Categorias
   recurringTransactions RecurringTransaction[]  // Relacionamento com Recorrência (Assinaturas)
+  badges        Badge[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -39,6 +40,19 @@ model Category {
   createdAt   DateTime @default(now())
 
   @@unique([userId, name])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  code        String   // Ex: 'FIRST_INVESTMENT'
+  name        String
+  description String
+  icon        String   // Emoji ou nome do ícone
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  awardedAt   DateTime @default(now())
 }
 
 model RecurringTransaction {

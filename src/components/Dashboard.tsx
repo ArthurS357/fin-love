@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
-  Clock, Plus, Target, LogOut, User as UserIcon, Sparkles
+  Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -42,6 +42,7 @@ export default function Dashboard({
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // Novo estado para o menu
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
   const transactions = useMemo(() => {
@@ -125,65 +126,87 @@ export default function Dashboard({
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
-            <TabButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} label="Perfil" icon={<UserIcon size={18} />} />
           </nav>
 
-          {/* User Area (Direita) */}
-          <div className="flex items-center gap-4 z-50 relative">
+          {/* Área Direita (Ações + Menu) */}
+          <div className="flex items-center gap-3 md:gap-4 z-50 relative">
             
-            {/* Botão IA (Desktop) - SUPER COMPACTO: Só Ícone + IA */}
+            {/* Botão IA (Visível em Mobile e Desktop) */}
             <button
               onClick={() => setIsAIModalOpen(true)}
-              className="hidden md:flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
+              className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
               title="Consultor IA"
             >
               <Sparkles size={14} />
-              <span>IA</span>
+              <span className="hidden md:inline">IA</span>
             </button>
 
-            <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">
-              <div className="text-right cursor-pointer hover:opacity-80 transition" onClick={() => setActiveTab('profile')}>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wider">Olá,</p>
-                <p className="text-sm font-bold text-white leading-none">{userName}</p>
-              </div>
-              <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-full transition-colors" title="Sair">
-                <LogOut size={20} />
-              </button>
-            </div>
-
+            {/* Botão Novo */}
             <button onClick={handleOpenNew} className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95">
               <Plus size={18} strokeWidth={3} />
               <span>Novo</span>
             </button>
+
+            {/* MENU HAMBÚRGUER (3 Listras) */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'bg-transparent text-gray-300 border-transparent hover:bg-white/5'}`}
+              >
+                <Menu size={24} />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isMenuOpen && (
+                <>
+                  {/* Overlay transparente para fechar ao clicar fora */}
+                  <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+                  
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-[#1a1025] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <div className="p-4 border-b border-white/5 bg-[#1f1630]">
+                      <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-0.5">Logado como</p>
+                      <p className="text-sm font-bold text-white truncate">{userName}</p>
+                      <p className="text-xs text-gray-400 truncate">{userEmail}</p>
+                    </div>
+                    
+                    <div className="p-2">
+                      <button 
+                        onClick={() => { setActiveTab('profile'); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+                      >
+                        <UserIcon size={16} className="text-pink-400" /> Meu Perfil
+                      </button>
+                      <button 
+                        onClick={() => { handleLogout(); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all"
+                      >
+                        <LogOut size={16} /> Sair
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
           </div>
         </div>
       </header>
 
-      {/* Main com padding extra no bottom (mobile) */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
 
+        {/* Header da Página (Saudação e Data) - Escondido no Perfil/Parceiro */}
         {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
-            <div className="w-full md:w-auto flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
-                  {activeTab === 'home' && 'Resumo Financeiro'}
-                  {activeTab === 'goals' && 'Minhas Metas'}
-                  {activeTab === 'history' && 'Extrato Detalhado'}
-                </h1>
-                <p className="text-gray-400 text-sm hidden md:block">
-                  {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
-                </p>
-              </div>
-
-              <div className="flex gap-2 md:hidden">
-                <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20 active:scale-95 transition">
-                  <Sparkles size={20} />
-                </button>
-                <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5 active:scale-95 transition">
-                  <LogOut size={20} />
-                </button>
-              </div>
+            <div className="w-full md:w-auto">
+              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+                {activeTab === 'home' && 'Resumo Financeiro'}
+                {activeTab === 'goals' && 'Minhas Metas'}
+                {activeTab === 'history' && 'Extrato Detalhado'}
+              </h1>
+              <p className="text-gray-400 text-sm hidden md:block">
+                {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
+              </p>
             </div>
 
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
@@ -221,13 +244,13 @@ export default function Dashboard({
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* Menu Mobile Flutuante Otimizado */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[92%] max-w-[380px]">
-        <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-4 py-3 flex justify-between items-end">
+      {/* Menu Mobile Flutuante Otimizado (SEM Aba Perfil, agora está no menu superior) */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
+        <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
           <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
           
-          <div className="relative -top-8 mx-1">
+          <div className="relative -top-8 mx-0.5">
             <button 
               onClick={handleOpenNew} 
               className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"

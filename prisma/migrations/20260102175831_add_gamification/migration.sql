@@ -24,6 +24,18 @@ CREATE TABLE "Category" (
 );
 
 -- CreateTable
+CREATE TABLE "Badge" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "icon" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "awardedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Badge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "RecurringTransaction" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "description" TEXT NOT NULL,

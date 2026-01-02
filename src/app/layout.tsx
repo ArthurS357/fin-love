@@ -1,16 +1,35 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next"; // Importa Viewport
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "sonner"; 
+import { Toaster } from "sonner";
 
-const inter = Inter({ subsets: ["latin"] });
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
 export const metadata: Metadata = {
-  title: "FinLove - Finanças para Casais",
-  description: "Gerencie suas finanças em conjunto, alcance metas e realize sonhos a dois.",
-  icons: {
-    icon: "/favicon.ico",
+  title: "FinLove",
+  description: "Gerencie suas finanças com amor",
+  manifest: "/manifest.webmanifest", // Link para o manifesto gerado
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "FinLove",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#130b20",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -20,19 +39,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${inter.className} bg-[#130b20] text-gray-100 antialiased selection:bg-pink-500/30 selection:text-pink-200`}>
-        {/* Renderiza as páginas */}
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#130b20] text-white`}
+      >
         {children}
-        
-        {/* Componente de notificações (Toasts) */}
-        <Toaster 
-          position="top-center" 
-          richColors 
-          theme="dark" 
-          toastOptions={{
-            style: { background: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
-          }}
-        />
+        <Toaster position="top-center" richColors theme="dark" />
       </body>
     </html>
   );

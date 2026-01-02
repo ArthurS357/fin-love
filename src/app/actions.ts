@@ -1,57 +1,87 @@
 'use server'
 
-import { prisma } from '@/lib/prisma';
-import { revalidatePath } from 'next/cache';
+import { prisma } from '@/lib/prisma'
+import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import bcrypt from 'bcryptjs' // Se não instalou, remova e use senha pura (não recomendado)
+import { SignJWT } from 'jose'
 
-// Função para buscar transações
-export async function getTransactions() {
-    return await prisma.transaction.findMany({
-        orderBy: { date: 'desc' },
-        include: { user: true } // Traz dados do usuário se precisar
-    });
-}
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
 
-export async function addTransaction(formData: FormData) {
-  const description = formData.get('description') as string;
-  const amount = parseFloat(formData.get('amount') as string);
-  const type = formData.get('type') as string;
-  // Se for RECEITA, forçamos a categoria ser "Entrada" para não ficar null ou confuso
-  const category = type === 'INCOME' ? 'Entrada' : (formData.get('category') as string);
+// --- REGISTRO ---
+export async function registerUser(prevState: any, formData: FormData) {
+  const name = formData.get('name') as string
+  const email = formData.get('email') as string
+  const password = formData.get('password') as string
 
-  // Lógica de usuário (mantendo o dummy por enquanto)
-  let user = await prisma.user.findFirst({ where: { email: 'eu@teste.com' }});
-  if (!user) {
-    user = await prisma.user.create({
-      data: { email: 'eu@teste.com', password: '123', name: 'Admin' }
-    });
+  if (!name || !email || !password) {
+    return { error: 'Preencha todos os campos.' }
   }
 
-  await prisma.transaction.create({
-    data: { description, amount, type, category, userId: user.id },
-  });
+  try {
+    const existingUser = await prisma.user.findUnique({ where: { email } })
+    if (existingUser) return { error: 'Este email já está em uso.' }
 
-  revalidatePath('/');
+    // Criptografar senha
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        spendingLimit: 2000, // Valor padrão inicial
+      },
+    })
+
+    // Criar Sessão (Token simples)
+    const token = await new SignJWT({ sub: user.id })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('7d')
+      .sign(JWT_SECRET)
+
+    const cookieStore = await cookies()
+    cookieStore.set('token', token, { httpOnly: true, path: '/' })
+
+    return { success: true }
+  } catch (error) {
+    console.error(error)
+    return { error: 'Erro ao criar conta.' }
+  }
 }
 
-// --- NOVAS FUNÇÕES CRUD ---
+// --- LOGIN ---
+export async function loginUser(prevState: any, formData: FormData) {
+  const email = formData.get('email') as string
+  const password = formData.get('password') as string
 
+  try {
+    const user = await prisma.user.findUnique({ where: { email } })
+    
+    if (!user) return { error: 'Credenciais inválidas.' }
+
+    // Verificar senha
+    const isValid = await bcrypt.compare(password, user.password)
+    if (!isValid) return { error: 'Credenciais inválidas.' }
+
+    // Criar Sessão
+    const token = await new SignJWT({ sub: user.id })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('7d')
+      .sign(JWT_SECRET)
+
+    const cookieStore = await cookies()
+    cookieStore.set('token', token, { httpOnly: true, path: '/' })
+
+    return { success: true }
+  } catch (error) {
+    return { error: 'Erro ao entrar.' }
+  }
+}
+
+// Manter a função de deletar transação que já existia
 export async function deleteTransaction(id: string) {
-  await prisma.transaction.delete({
-    where: { id }
-  });
-  revalidatePath('/');
-}
-
-export async function updateTransaction(formData: FormData) {
-  const id = formData.get('id') as string;
-  const description = formData.get('description') as string;
-  const amount = parseFloat(formData.get('amount') as string);
-  const type = formData.get('type') as string;
-  const category = type === 'INCOME' ? 'Entrada' : (formData.get('category') as string);
-
-  await prisma.transaction.update({
-    where: { id },
-    data: { description, amount, type, category }
-  });
-  revalidatePath('/');
+  await prisma.transaction.delete({ where: { id } })
+  revalidatePath('/')
 }

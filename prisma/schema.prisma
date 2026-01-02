@@ -9,19 +9,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// prisma/schema.prisma
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String   
-  name      String?
-  partnerId String?  @unique
-  partner   User?    @relation("Couple", fields: [partnerId], references: [id])
-  partnerOf User?    @relation("Couple")
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String   
+  name          String?
+  // Novo campo para a Meta Financeira (GoalsTab)
+  spendingLimit Float?   @default(0)
 
-  transactions Transaction[]
+  partnerId     String?  @unique
+  partner       User?    @relation("Couple", fields: [partnerId], references: [id])
+  partnerOf     User?    @relation("Couple")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  transactions  Transaction[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Transaction {

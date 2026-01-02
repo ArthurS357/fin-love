@@ -3,7 +3,7 @@ import { X, CheckCircle2, TrendingDown, TrendingUp, ChevronLeft, Pencil, Plus } 
 import { addTransaction, updateTransaction } from '@/app/actions';
 
 const CATEGORIAS_DESPESA = [
-  "Alimentação", "Transporte", "Lazer", "Faculdade", 
+  "Alimentação", "Transporte", "Lazer", "Faculdade",
   "Fatura Cartão", "Luz", "Internet", "Água", "Outros"
 ];
 
@@ -53,14 +53,14 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
     <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-4">
       {/* Fundo Escuro */}
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
-      
+
       {/* Card do Modal */}
       <div className="relative bg-[#1f1630] w-full max-w-md rounded-t-3xl md:rounded-2xl border border-purple-500/30 shadow-2xl p-6 animate-in slide-in-from-bottom-10 zoom-in-95 duration-300">
-        
+
         {/* Cabeçalho */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            {initialData ? <Pencil className="text-blue-400" /> : <Plus className="text-purple-400" />} 
+            {initialData ? <Pencil className="text-blue-400" /> : <Plus className="text-purple-400" />}
             {initialData ? 'Editar Lançamento' : 'Novo Lançamento'}
           </h2>
           <button onClick={onClose} className="bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white p-2 rounded-full transition">
@@ -69,7 +69,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
         </div>
 
         <form action={handleSubmit} className="space-y-5">
-          
+
           {/* Seletor Tipo (Receita vs Despesa) */}
           <div className="grid grid-cols-2 gap-3 p-1 bg-[#130b20] rounded-xl border border-purple-900/30">
             <button
@@ -92,13 +92,13 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
           {/* Valor */}
           <div>
             <label className="block text-xs uppercase text-gray-500 font-bold mb-1 pl-1">Valor (R$)</label>
-            <input 
-              name="amount" 
-              type="number" 
-              step="0.01" 
+            <input
+              name="amount"
+              type="number"
+              step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="0,00" 
+              placeholder="0,00"
               required
               className="w-full bg-[#2a2235] border border-purple-900/50 text-white text-4xl font-bold p-4 rounded-xl focus:outline-none focus:border-purple-500 placeholder-gray-600 transition"
             />
@@ -107,7 +107,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
           {/* Descrição */}
           <div>
             <label className="block text-xs uppercase text-gray-500 font-bold mb-1 pl-1">Descrição</label>
-            <input 
+            <input
               name="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -122,7 +122,7 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
             <div className="animate-in fade-in slide-in-from-top-2 duration-300">
               <label className="block text-xs uppercase text-gray-500 font-bold mb-1 pl-1">Categoria</label>
               <div className="relative">
-                <select 
+                <select
                   name="category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
@@ -140,8 +140,8 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
           )}
 
           {/* Botão Confirmar */}
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className={`w-full font-bold py-4 rounded-xl shadow-lg transition flex items-center justify-center gap-2 mt-2 text-lg ${type === 'EXPENSE' ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/30' : 'bg-green-600 hover:bg-green-500 text-white shadow-green-900/30'}`}
           >
             <CheckCircle2 size={24} />

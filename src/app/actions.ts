@@ -3,11 +3,11 @@
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
-import { SignJWT, jwtVerify } from 'jose' // Importar jwtVerify também
+import { SignJWT, jwtVerify } from 'jose'
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key')
-
 
 // --- HELPER: Obter ID do Usuário Logado ---
 async function getUserId() {
@@ -24,7 +24,7 @@ async function getUserId() {
   }
 }
 
-// --- REGISTRO ---
+// --- AUTH: REGISTRO ---
 export async function registerUser(prevState: any, formData: FormData) {
   const name = formData.get('name') as string
   const email = formData.get('email') as string
@@ -64,14 +64,13 @@ export async function registerUser(prevState: any, formData: FormData) {
   }
 }
 
-// --- LOGIN ---
+// --- AUTH: LOGIN ---
 export async function loginUser(prevState: any, formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
   try {
     const user = await prisma.user.findUnique({ where: { email } })
-    
     if (!user) return { error: 'Credenciais inválidas.' }
 
     const isValid = await bcrypt.compare(password, user.password)
@@ -91,7 +90,14 @@ export async function loginUser(prevState: any, formData: FormData) {
   }
 }
 
-// --- TRANSAÇÕES (NOVAS FUNÇÕES ADICIONADAS) ---
+// --- AUTH: LOGOUT ---
+export async function logoutUser() {
+  const cookieStore = await cookies()
+  cookieStore.delete('token')
+  redirect('/login')
+}
+
+// --- TRANSAÇÕES ---
 
 export async function addTransaction(formData: FormData) {
   const userId = await getUserId()
@@ -100,10 +106,7 @@ export async function addTransaction(formData: FormData) {
   const type = formData.get('type') as string
   const amount = parseFloat(formData.get('amount') as string)
   const description = formData.get('description') as string
-  // Se for INCOME, a categoria pode vir vazia, então definimos um padrão
   const category = formData.get('category') as string || (type === 'INCOME' ? 'Receita' : 'Outros')
-
-  if (!amount || !description) return { error: 'Preencha os dados obrigatórios' }
 
   await prisma.transaction.create({
     data: {
@@ -129,20 +132,9 @@ export async function updateTransaction(formData: FormData) {
   const description = formData.get('description') as string
   const category = formData.get('category') as string || (type === 'INCOME' ? 'Receita' : 'Outros')
 
-  // Segurança: Verificar se a transação pertence ao usuário antes de editar
-  const existing = await prisma.transaction.findUnique({ where: { id } })
-  if (!existing || existing.userId !== userId) {
-     return { error: 'Acesso negado' }
-  }
-
   await prisma.transaction.update({
     where: { id },
-    data: {
-      type,
-      amount,
-      description,
-      category,
-    },
+    data: { type, amount, description, category },
   })
 
   revalidatePath('/dashboard')
@@ -152,16 +144,6 @@ export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
 
-  const existing = await prisma.transaction.findUnique({ where: { id } })
-  if (existing && existing.userId === userId) {
-    await prisma.transaction.delete({ where: { id } })
-    revalidatePath('/dashboard')
-  }
-}
-
-// --- LOGOUT ---
-export async function logoutUser() {
-  const cookieStore = await cookies()
-  cookieStore.delete('token')
-  redirect('/login')
+  await prisma.transaction.delete({ where: { id } })
+  revalidatePath('/dashboard')
 }

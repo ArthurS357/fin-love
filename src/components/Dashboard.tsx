@@ -1,36 +1,35 @@
 "use client";
 
 import React, { useState, useMemo } from 'react';
-import { 
-  Home, Heart, ChevronLeft, ChevronRight, Calendar, 
-  Clock, Plus, Target, LogOut // Importar LogOut
+import {
+  Home, Heart, ChevronLeft, ChevronRight, Calendar,
+  Clock, Plus, Target, LogOut
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { deleteTransaction, logoutUser } from '@/app/actions'; // Importar logoutUser
+import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
-// ... (Importações dos componentes Tabs e Modal mantidas)
+// Componentes Modulares
 import HomeTab from './tabs/HomeTab';
 import HistoryTab from './tabs/HistoryTab';
 import PartnerTab from './tabs/PartnerTab';
 import GoalsTab from './tabs/GoalsTab';
 import TransactionModal from './modals/TransactionModal';
 
-// Atualizar a interface para receber userName
+// Interface atualizada para receber o nome do utilizador
 interface DashboardProps {
   initialTransactions: any[];
   userName: string;
 }
 
 export default function Dashboard({ initialTransactions, userName }: DashboardProps) {
-  // ... (Estados e lógica mantidos iguais)
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  // ... (Memos transactions, monthlyTransactions, income, expense, balance, pieData mantidos)
+  // --- Lógica de Dados ---
   const transactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -59,32 +58,37 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
     { name: 'Saídas', valor: expense },
   ];
 
+  // --- Funções Auxiliares ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
-  const handleEdit = (t: any) => { setEditingTransaction(t); setIsModalOpen(true); };
-  const handleDelete = async (id: string) => { 
+
+  const handleEdit = (t: any) => {
+    setEditingTransaction(t);
+    setIsModalOpen(true);
+  };
+
+  const handleDelete = async (id: string) => {
     toast.promise(deleteTransaction(id), {
-      loading: 'Excluindo...',
-      success: 'Removido!',
-      error: 'Erro ao excluir.'
+      loading: 'Excluindo registro...',
+      success: 'Transação removida com sucesso!',
+      error: 'Erro ao excluir transação.'
     });
   };
 
-  // Nova função para lidar com o Logout
   const handleLogout = async () => {
     await logoutUser();
   };
 
   return (
     <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans pb-28 md:pb-10 relative overflow-hidden">
-      
-      {/* Backgrounds mantidos */}
+
+      {/* Background Gradients */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-      {/* HEADER DESKTOP ATUALIZADO */}
+      {/* 1. Header Desktop */}
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/70 border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
-          
+
           {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveTab('home')}>
             <div className="relative">
@@ -93,25 +97,25 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
             </div>
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
-          
+
           {/* Navegação Central */}
           <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
-             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Geral" icon={<Home size={18} />} />
-             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
-             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
-             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
+            <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
+            <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Lançamentos" icon={<Clock size={18} />} />
+            <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
           {/* Área do Usuário (Direita) */}
           <div className="flex items-center gap-4">
-            
-            {/* Saudação e Logout */}
+
+            {/* Saudação e Logout (Desktop) */}
             <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">
               <div className="text-right">
                 <p className="text-[10px] text-gray-400 uppercase tracking-wider">Olá,</p>
                 <p className="text-sm font-bold text-white leading-none">{userName}</p>
               </div>
-              <button 
+              <button
                 onClick={handleLogout}
                 className="p-2 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-full transition-colors"
                 title="Sair"
@@ -121,24 +125,23 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
             </div>
 
             {/* Botão Nova Transação */}
-            <button 
+            <button
               onClick={handleOpenNew}
               className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95"
             >
-              <Plus size={18} strokeWidth={3} /> 
-              <span>Novo</span>
+              <Plus size={18} strokeWidth={3} />
+              <span>Nova Transação</span>
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-2 relative z-10">
-        
+
         {/* Controle de Data e Cabeçalho Mobile */}
         {activeTab !== 'partner' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
-            
-            {/* Título e Saudação Mobile */}
+
             <div className="w-full md:w-auto flex justify-between items-center">
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
@@ -150,36 +153,34 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
                   {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
                 </p>
               </div>
-              
-              {/* Botão de Logout Mobile (só aparece em telas pequenas) */}
-              <button 
+
+              {/* Botão de Logout Mobile */}
+              <button
                 onClick={handleLogout}
-                className="md:hidden p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full"
+                className="md:hidden p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5"
               >
                 <LogOut size={20} />
               </button>
             </div>
 
-            {/* Seletor de Data */}
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
-               <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronLeft size={18} /></button>
-               <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
-                  <Calendar size={14} className="text-purple-400" />
-                  <span className="text-sm font-semibold capitalize text-gray-200">
-                    {format(currentDate, 'MMM yyyy', { locale: ptBR })}
-                  </span>
-               </div>
-               <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronRight size={18} /></button>
+              <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronLeft size={18} /></button>
+              <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
+                <Calendar size={14} className="text-purple-400" />
+                <span className="text-sm font-semibold capitalize text-gray-200">
+                  {format(currentDate, 'MMM yyyy', { locale: ptBR })}
+                </span>
+              </div>
+              <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronRight size={18} /></button>
             </div>
           </div>
         )}
 
-        {/* ... (Conteúdo das Abas e Modal e Nav Mobile mantidos) */}
         <div className="transition-all duration-500 ease-out">
-            {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
-            {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
-            {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
-            {activeTab === 'partner' && <PartnerTab />}
+          {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
+          {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
+          {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
+          {activeTab === 'partner' && <PartnerTab />}
         </div>
 
       </main>
@@ -192,7 +193,7 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
           <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
           <div className="absolute left-1/2 -translate-x-1/2 -top-6">
-            <button 
+            <button
               onClick={handleOpenNew}
               className="bg-gradient-to-t from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_20px_rgba(236,72,153,0.5)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
             >
@@ -208,21 +209,21 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
   );
 }
 
-// ... (Componentes TabButton e NavIcon mantidos)
+// Componentes auxiliares
 function TabButton({ active, onClick, label, icon }: any) {
-    return (
-      <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
-        <span className={active ? 'text-pink-400' : ''}>{icon}</span>
-        <span>{label}</span>
-      </button>
-    );
+  return (
+    <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+      <span className={active ? 'text-pink-400' : ''}>{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
 }
 
 function NavIcon({ active, onClick, icon, label }: any) {
-    return (
-      <button onClick={onClick} className={`flex flex-col items-center gap-1 min-w-[3.5rem] transition-all duration-300 ${active ? 'text-white scale-110' : 'text-gray-500 hover:text-gray-300'}`}>
-        <div className={`p-1.5 rounded-xl transition-all ${active ? 'bg-pink-500/20 shadow-[0_0_10px_rgba(236,72,153,0.2)]' : ''}`}>{icon}</div>
-        <span className="text-[10px] font-medium">{label}</span>
-      </button>
-    );
+  return (
+    <button onClick={onClick} className={`flex flex-col items-center gap-1 min-w-[3.5rem] transition-all duration-300 ${active ? 'text-white scale-110' : 'text-gray-500 hover:text-gray-300'}`}>
+      <div className={`p-1.5 rounded-xl transition-all ${active ? 'bg-pink-500/20 shadow-[0_0_10px_rgba(236,72,153,0.2)]' : ''}`}>{icon}</div>
+      <span className="text-[10px] font-medium">{label}</span>
+    </button>
+  );
 }

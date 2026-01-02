@@ -3,25 +3,27 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Home, Heart, ChevronLeft, ChevronRight, Calendar, 
-  LayoutDashboard, Clock, Plus 
+  Clock, Plus, Target 
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction } from '@/app/actions';
+import { toast } from 'sonner'; // Importar toast
 
 // Componentes Modulares
 import HomeTab from './tabs/HomeTab';
 import HistoryTab from './tabs/HistoryTab';
 import PartnerTab from './tabs/PartnerTab';
+import GoalsTab from './tabs/GoalsTab';
 import TransactionModal from './modals/TransactionModal';
 
 export default function Dashboard({ initialTransactions }: { initialTransactions: any[] }) {
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  // --- Lógica de Dados ---
+  // --- Lógica de Dados (Mantida) ---
   const transactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -50,129 +52,141 @@ export default function Dashboard({ initialTransactions }: { initialTransactions
     { name: 'Saídas', valor: expense },
   ];
 
-  // --- Funções Auxiliares ---
+  // --- Funções Auxiliares Melhoradas ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
-  const handleEdit = (t: any) => { setEditingTransaction(t); setIsModalOpen(true); };
-  const handleDelete = async (id: string) => { if (confirm('Excluir registro?')) await deleteTransaction(id); };
+  
+  const handleEdit = (t: any) => { 
+    setEditingTransaction(t); 
+    setIsModalOpen(true); 
+  };
+  
+  const handleDelete = async (id: string) => { 
+    // Usando toast com promessa para feedback visual incrível
+    toast.promise(deleteTransaction(id), {
+      loading: 'Excluindo registro...',
+      success: 'Transação removida com sucesso!',
+      error: 'Erro ao excluir transação.'
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans pb-32 md:pb-0 relative">
+    <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans pb-28 md:pb-10 relative overflow-hidden">
       
-      {/* 1. Header Desktop (Fixo) */}
-      <div className="bg-[#1f1630]/90 border-b border-purple-900/30 sticky top-0 z-20 backdrop-blur-md shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between relative">
-          
-          {/* Esquerda: Logo */}
-          <div className="flex items-center gap-2 w-48">
-            <LayoutDashboard size={24} className="text-purple-500" />
-            <span className="font-bold text-white text-lg tracking-tight">FinLove</span>
-          </div>
-          
-          {/* CENTRO: Abas de Navegação (Estilo Ilha Flutuante igual Mobile) */}
-          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-[#130b20]/80 backdrop-blur-xl border border-purple-500/20 rounded-full px-2 py-1 shadow-2xl items-center gap-1">
-             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Home" icon={<Home size={20} />} />
-             <div className="w-px h-6 bg-purple-900/30 mx-1"></div>
-             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Histórico" icon={<Clock size={20} />} />
-             <div className="w-px h-6 bg-purple-900/30 mx-1"></div>
-             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Nós" icon={<Heart size={20} />} />
-          </div>
+      {/* Background Gradients */}
+      <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
+      <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-          {/* Direita: Botão Nova Transação (Mantido como você pediu) */}
-          <div className="w-48 flex justify-end">
+      {/* 1. Header Desktop */}
+      <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/70 border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
+          
+          {/* LOGO ATUALIZADA - Coração */}
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveTab('home')}>
+            <div className="relative">
+              <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
+              <Heart size={28} className="text-pink-500 fill-pink-500/20 group-hover:scale-110 transition-transform duration-300" />
+            </div>
+            <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
+          </div>
+          
+          {/* Navegação Central */}
+          <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
+             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
+             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
+             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Lançamentos" icon={<Clock size={18} />} />
+             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
+          </nav>
+
+          {/* Ações Direita */}
+          <div className="flex items-center gap-4">
             <button 
               onClick={handleOpenNew}
-              className="hidden md:flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-5 py-2.5 rounded-full text-sm font-bold transition shadow-lg shadow-purple-600/20 hover:scale-105 active:scale-95"
+              className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95"
             >
               <Plus size={18} strokeWidth={3} /> 
               <span>Nova Transação</span>
             </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-4">
+      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-2 relative z-10">
         
-        {/* 2. Barra de Controle de Data */}
+        {/* Controle de Data */}
         {activeTab !== 'partner' && (
-          <div className="flex flex-col md:flex-row items-center justify-center gap-6 mb-8 bg-[#1f1630] md:bg-transparent p-4 md:p-0 rounded-2xl border border-purple-900/30 md:border-none shadow-lg md:shadow-none animate-in fade-in slide-in-from-top-4 duration-500">
-             <div className="flex items-center gap-6">
-               <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 bg-[#2a2235] rounded-full hover:bg-purple-600 hover:text-white text-purple-300 transition border border-purple-900/30"><ChevronLeft size={20} /></button>
-               <div className="flex items-center gap-3 min-w-[180px] justify-center">
-                  <Calendar className="text-purple-500" size={24} />
-                  <span className="text-xl font-bold capitalize text-white">
-                    {format(currentDate, 'MMMM yyyy', { locale: ptBR })}
+          <div className="flex justify-between items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
+                {activeTab === 'home' && 'Resumo Financeiro'}
+                {activeTab === 'goals' && 'Minhas Metas'}
+                {activeTab === 'history' && 'Extrato Detalhado'}
+              </h1>
+              <p className="text-gray-400 text-sm">
+                {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
+              </p>
+            </div>
+
+            <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
+               <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronLeft size={18} /></button>
+               <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
+                  <Calendar size={14} className="text-purple-400" />
+                  <span className="text-sm font-semibold capitalize text-gray-200">
+                    {format(currentDate, 'MMM yyyy', { locale: ptBR })}
                   </span>
                </div>
-               <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-2 bg-[#2a2235] rounded-full hover:bg-purple-600 hover:text-white text-purple-300 transition border border-purple-900/30"><ChevronRight size={20} /></button>
-             </div>
+               <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronRight size={18} /></button>
+            </div>
           </div>
         )}
 
-        {/* 3. Conteúdo das Abas */}
-        {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
-        {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
-        {activeTab === 'partner' && <PartnerTab />}
+        <div className="transition-all duration-500 ease-out">
+            {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
+            {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
+            {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
+            {activeTab === 'partner' && <PartnerTab />}
+        </div>
 
       </main>
 
-      {/* 4. Modal de Transação */}
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
 
-      {/* 5. Menu Mobile Inferior (Mantido igual) */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[350px] bg-[#1f1630]/90 backdrop-blur-xl border border-purple-500/30 rounded-2xl shadow-2xl px-2 py-2 z-40 md:hidden flex justify-between items-center">
-        <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={24} />} label="Home" />
-        <button 
-          onClick={handleOpenNew}
-          className="bg-purple-600 text-white p-4 rounded-xl shadow-lg shadow-purple-600/40 -translate-y-6 border-4 border-[#130b20] active:scale-95 transition-transform"
-        >
-          <Plus size={28} />
-        </button>
-        <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={24} />} label="Histórico" />
-        <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={24} />} label="Nós" />
-      </nav>
+      {/* Menu Mobile */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-full max-w-[340px]">
+        <nav className="relative bg-[#1a1025]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] px-4 py-3 flex justify-between items-end">
+          <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
+          <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
+          <div className="absolute left-1/2 -translate-x-1/2 -top-6">
+            <button 
+              onClick={handleOpenNew}
+              className="bg-gradient-to-t from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_20px_rgba(236,72,153,0.5)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
+            >
+              <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
+            </button>
+          </div>
+          <div className="w-8"></div>
+          <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={22} />} label="Extrato" />
+          <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={22} />} label="Nós" />
+        </nav>
+      </div>
     </div>
   );
 }
 
-// --- Componentes Visuais ---
-
-// Botão de Aba Unificado (Usado no Desktop agora com estilo visual aprimorado)
+// Componentes auxiliares (TabButton, NavIcon) mantêm-se iguais ou ajustados levemente para cores pink/purple
 function TabButton({ active, onClick, label, icon }: any) {
-  return (
-    <button 
-      onClick={onClick} 
-      className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 relative overflow-hidden group ${
-        active 
-          ? 'text-white bg-purple-600 shadow-lg shadow-purple-900/50' 
-          : 'text-gray-400 hover:text-white hover:bg-white/5'
-      }`}
-    >
-      {/* Ícone com animação leve */}
-      <span className={`relative z-10 ${active ? 'scale-110' : 'group-hover:scale-110'} transition-transform duration-300`}>
-        {icon}
-      </span>
-      <span className="relative z-10">{label}</span>
-      
-      {/* Efeito de brilho fundo se ativo */}
-      {active && <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-purple-500 opacity-100" />}
-    </button>
-  );
+    return (
+      <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+        <span className={active ? 'text-pink-400' : ''}>{icon}</span>
+        <span>{label}</span>
+      </button>
+    );
 }
 
-// Botão do Menu Mobile (Ícone Vertical)
 function NavIcon({ active, onClick, icon, label }: any) {
-  // Ajuste para 4 itens no mobile (Home, Botão, Hist, Nós) requer layout cuidadoso
-  return (
-    <button 
-      onClick={onClick}
-      className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all ${
-        active ? 'text-purple-400 -translate-y-1' : 'text-gray-500 hover:text-gray-300'
-      }`}
-    >
-      <div className={`transition-transform duration-300 ${active ? 'scale-110 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]' : ''}`}>
-        {icon}
-      </div>
-      <span className="text-[10px] font-medium mt-1">{label}</span>
-    </button>
-  );
+    return (
+      <button onClick={onClick} className={`flex flex-col items-center gap-1 min-w-[3.5rem] transition-all duration-300 ${active ? 'text-white scale-110' : 'text-gray-500 hover:text-gray-300'}`}>
+        <div className={`p-1.5 rounded-xl transition-all ${active ? 'bg-pink-500/20 shadow-[0_0_10px_rgba(236,72,153,0.2)]' : ''}`}>{icon}</div>
+        <span className="text-[10px] font-medium">{label}</span>
+      </button>
+    );
 }

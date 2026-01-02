@@ -1,87 +1,152 @@
-import React, { useState } from 'react';
-import { Search, Filter, Pencil, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import React, { useMemo } from 'react';
+import { 
+  ArrowUpCircle, ArrowDownCircle, Pencil, Trash2, 
+  ShoppingBag, Utensils, Car, Home, Zap, 
+  Smartphone, Heart, Coffee, AlertCircle, FileText
+} from 'lucide-react';
+import { format, isToday, isYesterday } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface HistoryTabProps {
   transactions: any[];
-  onEdit: (t: any) => void;
+  onEdit: (transaction: any) => void;
   onDelete: (id: string) => void;
 }
 
-export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTabProps) {
-  const [searchTerm, setSearchTerm] = useState('');
+// Mapa de ícones por categoria (Simples e eficiente)
+const getCategoryIcon = (category: string) => {
+  const normalized = category.toLowerCase();
+  if (normalized.includes('mercado') || normalized.includes('compras')) return <ShoppingBag size={18} />;
+  if (normalized.includes('food') || normalized.includes('restaurante') || normalized.includes('lanche')) return <Utensils size={18} />;
+  if (normalized.includes('transporte') || normalized.includes('uber') || normalized.includes('gasolina')) return <Car size={18} />;
+  if (normalized.includes('casa') || normalized.includes('aluguel')) return <Home size={18} />;
+  if (normalized.includes('luz') || normalized.includes('internet')) return <Zap size={18} />;
+  if (normalized.includes('celular')) return <Smartphone size={18} />;
+  if (normalized.includes('date') || normalized.includes('amor')) return <Heart size={18} />;
+  if (normalized.includes('lazer')) return <Coffee size={18} />;
+  return <FileText size={18} />; // Ícone padrão
+};
 
-  // Filtragem local baseada na busca
-  const filteredData = transactions.filter(t => 
-    t.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    t.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTabProps) {
+  
+  // Agrupar transações por Data
+  const groupedTransactions = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    
+    // Ordenar por data (mais recente primeiro)
+    const sorted = [...transactions].sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    sorted.forEach(t => {
+      const dateKey = format(t.date, 'yyyy-MM-dd');
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(t);
+    });
+
+    return groups;
+  }, [transactions]);
+
+  const dates = Object.keys(groupedTransactions);
+
+  // Função para formatar o título da data (Hoje, Ontem, etc.)
+  const formatDateTitle = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00'); // Forçar timezone local simples
+    if (isToday(date)) return 'Hoje';
+    if (isYesterday(date)) return 'Ontem';
+    return format(date, "dd 'de' MMMM", { locale: ptBR });
+  };
+
+  if (transactions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-gray-500 animate-in fade-in zoom-in duration-500">
+        <div className="bg-white/5 p-6 rounded-full mb-4">
+            <AlertCircle size={48} className="text-gray-600" />
+        </div>
+        <p className="text-lg font-medium">Nenhum lançamento neste mês</p>
+        <p className="text-sm">Toque em "+" para adicionar o primeiro.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-[#1f1630] rounded-xl border border-purple-900/30 overflow-hidden shadow-xl animate-in fade-in zoom-in-95 duration-300">
+    <div className="space-y-6 pb-24 md:pb-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* Barra de Ferramentas */}
-      <div className="p-4 border-b border-purple-900/30 flex flex-col md:flex-row justify-between items-center gap-4 bg-[#251b36]">
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <Filter size={18} className="text-purple-400" /> Extrato
-        </h2>
-        
-        <div className="relative w-full md:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-          <input 
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar lançamento..."
-            className="w-full bg-[#130b20] border border-purple-900/50 rounded-lg py-2 pl-9 pr-4 text-sm text-white focus:outline-none focus:border-purple-500 placeholder-gray-600 transition"
-          />
-        </div>
-      </div>
+      {dates.map(dateKey => (
+        <div key={dateKey} className="space-y-3">
+          {/* Título da Data */}
+          <div className="flex items-center gap-3 px-2">
+             <div className="h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent flex-1" />
+             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-[#130b20] px-2">
+               {formatDateTitle(dateKey)}
+             </span>
+             <div className="h-px bg-gradient-to-r from-transparent via-gray-700 to-transparent flex-1" />
+          </div>
 
-      {/* Tabela */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[600px]">
-          <thead>
-            <tr className="bg-[#2a2235] text-gray-400 text-xs uppercase tracking-wider">
-              <th className="p-4 font-semibold">Dia</th>
-              <th className="p-4 font-semibold">Descrição</th>
-              <th className="p-4 font-semibold">Categoria</th>
-              <th className="p-4 font-semibold text-right">Valor</th>
-              <th className="p-4 font-semibold text-center w-24">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-purple-900/20 text-sm">
-            {filteredData.length === 0 ? (
-              <tr><td colSpan={5} className="p-8 text-center text-gray-500">Nenhum registro encontrado.</td></tr>
-            ) : filteredData.map((t) => (
-              <tr key={t.id} className="hover:bg-purple-900/10 transition group">
-                <td className="p-4 text-gray-400 font-mono">{format(t.date, 'dd')}</td>
-                <td className="p-4 font-medium text-white">{t.description}</td>
-                <td className="p-4">
-                  {t.type === 'INCOME' ? ( // Usando type aqui pois category pode ser editado
-                    <span className="text-gray-500 italic text-xs">Receita</span>
-                  ) : (
-                    <span className="bg-purple-900/40 border border-purple-500/20 px-2 py-1 rounded text-xs text-purple-200">{t.category}</span>
-                  )}
-                </td>
-                <td className={`p-4 text-right font-bold ${t.type === 'INCOME' ? 'text-green-400' : 'text-red-400'}`}>
-                  {t.type === 'INCOME' ? '+' : '-'} {t.amount.toFixed(2)}
-                </td>
-                <td className="p-4 text-center">
-                  <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => onEdit(t)} className="p-1.5 text-blue-400 hover:bg-blue-400/10 rounded transition">
-                      <Pencil size={16} />
-                    </button>
-                    <button onClick={() => onDelete(t.id)} className="p-1.5 text-red-400 hover:bg-red-400/10 rounded transition">
-                      <Trash2 size={16} />
-                    </button>
+          {/* Lista de Cards */}
+          <div className="space-y-2">
+            {groupedTransactions[dateKey].map((t) => (
+              <div 
+                key={t.id} 
+                className="group relative bg-[#1f1630]/60 hover:bg-[#2a2235] backdrop-blur-sm border border-white/5 rounded-2xl p-4 flex items-center justify-between transition-all duration-300 hover:shadow-lg hover:border-white/10"
+              >
+                {/* Lado Esquerdo: Ícone + Info */}
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-2xl ${
+                      t.type === 'INCOME' 
+                        ? 'bg-emerald-500/10 text-emerald-400' 
+                        : 'bg-rose-500/10 text-rose-400'
+                    }`}>
+                    {getCategoryIcon(t.category)}
                   </div>
-                </td>
-              </tr>
+                  
+                  <div>
+                    <p className="font-semibold text-white text-sm md:text-base capitalize">
+                        {t.category}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-gray-500">{t.description || 'Sem descrição'}</span>
+                        <span className="text-[10px] text-gray-600">•</span>
+                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                             {t.type === 'INCOME' ? <ArrowUpCircle size={10} /> : <ArrowDownCircle size={10} />}
+                             {t.type === 'INCOME' ? 'Entrada' : 'Saída'}
+                        </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lado Direito: Valor + Ações (Hover) */}
+                <div className="flex items-center gap-4">
+                    <span className={`font-bold text-sm md:text-base whitespace-nowrap ${
+                        t.type === 'INCOME' ? 'text-emerald-400' : 'text-white'
+                    }`}>
+                        {t.type === 'EXPENSE' && '- '}
+                        R$ {t.amount.toFixed(2)}
+                    </span>
+
+                    {/* Botões de Ação - Visíveis no Hover (Desktop) ou Slide (Mobile) 
+                        Para simplificar UX Mobile e Desktop simultaneamente, vamos criar um container 
+                        que aparece suavemente */}
+                    <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity absolute right-4 md:relative md:right-auto bg-[#1f1630] md:bg-transparent shadow-xl md:shadow-none p-1 rounded-lg md:p-0 border border-white/10 md:border-none">
+                        <button 
+                            onClick={() => onEdit(t)} 
+                            className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition"
+                            title="Editar"
+                        >
+                            <Pencil size={16} />
+                        </button>
+                        <button 
+                            onClick={() => onDelete(t.id)} 
+                            className="p-2 text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                            title="Excluir"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

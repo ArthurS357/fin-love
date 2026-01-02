@@ -13,7 +13,8 @@ model User {
   password      String   
   name          String?
   spendingLimit Float?   @default(0)
-  
+  categories    Category[]
+
   savingsGoal   String?  @default("Caixinha dos Sonhos")
 
   partnerId     String?  @unique // Mantém unique para 1:1
@@ -24,6 +25,20 @@ model User {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  color       String   // Ex: "#ef4444" ou "bg-red-500"
+  icon        String   // Nome do ícone (ex: "Gamepad")
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, name]) // Evitar categorias duplicadas para o mesmo usuário
 }
 
 model Transaction {

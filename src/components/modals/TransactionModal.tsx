@@ -1,45 +1,41 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
-import { X, Check, Calendar, Tag, FileText, DollarSign, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, ArrowUpCircle, ArrowDownCircle, Check, Loader2, Calendar as CalendarIcon } from 'lucide-react';
 import { addTransaction, updateTransaction } from '@/app/actions';
 import { toast } from 'sonner';
 
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialData?: any | null;
+  initialData?: any;
 }
-
-const CATEGORIES = {
-  INCOME: ['Salário', 'Freelance', 'Investimentos', 'Presente', 'Outros'],
-  EXPENSE: ['Alimentação', 'Moradia', 'Transporte', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Outros']
-};
 
 export default function TransactionModal({ isOpen, onClose, initialData }: TransactionModalProps) {
   const [loading, setLoading] = useState(false);
-  const [type, setType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');
-  
-  // Form States
+  // Estado local para controlar inputs
+  const [type, setType] = useState('EXPENSE');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
 
-  // Carregar dados ao editar
+  // Sincroniza dados quando abre para edição
   useEffect(() => {
-    if (initialData) {
-      setType(initialData.type);
-      setAmount(initialData.amount.toString());
-      setDescription(initialData.description);
-      setCategory(initialData.category);
-    } else {
-      // Reset para nova transação
-      setType('EXPENSE');
-      setAmount('');
-      setDescription('');
-      setCategory('');
+    if (isOpen) {
+      if (initialData) {
+        setType(initialData.type);
+        setAmount(initialData.amount.toString());
+        setDescription(initialData.description);
+        setCategory(initialData.category);
+      } else {
+        // Reset para nova transação
+        setType('EXPENSE');
+        setAmount('');
+        setDescription('');
+        setCategory('');
+      }
     }
-  }, [initialData, isOpen]);
+  }, [isOpen, initialData]);
 
   if (!isOpen) return null;
 
@@ -51,141 +47,121 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
     formData.append('type', type);
     formData.append('amount', amount);
     formData.append('description', description);
-    formData.append('category', category || 'Outros');
+    formData.append('category', category);
 
     let result;
-    
     if (initialData) {
-      // Edição
       formData.append('id', initialData.id);
       result = await updateTransaction(formData);
     } else {
-      // Criação
       result = await addTransaction(formData);
     }
 
     if (result.success) {
-      toast.success(initialData ? 'Transação atualizada!' : 'Transação criada com sucesso!');
+      toast.success(initialData ? 'Atualizado com sucesso!' : 'Lançamento adicionado!');
       onClose();
     } else {
-      toast.error('Erro ao salvar transação.');
+      toast.error(result.error || 'Ocorreu um erro.');
     }
-    
     setLoading(false);
   };
 
-  const isExpense = type === 'EXPENSE';
-  const themeColor = isExpense ? 'red' : 'green';
-  const themeClass = isExpense ? 'text-red-400' : 'text-green-400';
-  const bgClass = isExpense ? 'bg-red-500' : 'bg-green-500';
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay com Blur */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
-        onClick={onClose}
-      />
-
-      {/* Modal Content */}
-      <div className="relative w-full max-w-md bg-[#1f1630] rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      
+      {/* Container do Modal */}
+      <div className="bg-[#1a1025] w-full max-w-md rounded-3xl border border-white/10 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 relative">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/5">
-          <h2 className="text-xl font-bold text-white">
+        <div className="flex justify-between items-center p-6 border-b border-white/5 bg-[#1f1630]">
+          <h3 className="text-xl font-bold text-white">
             {initialData ? 'Editar Lançamento' : 'Nova Transação'}
-          </h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition">
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition p-1 hover:bg-white/10 rounded-full">
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
           
           {/* Seletor de Tipo */}
-          <div className="grid grid-cols-2 gap-2 bg-[#130b20] p-1 rounded-xl">
+          <div className="grid grid-cols-2 gap-3 p-1 bg-[#130b20] rounded-2xl">
             <button
               type="button"
               onClick={() => setType('INCOME')}
-              className={`flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all ${!isExpense ? 'bg-[#1f1630] text-green-400 shadow-md' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
+                type === 'INCOME' 
+                  ? 'bg-green-500/20 text-green-400 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
             >
-              <ArrowUpCircle size={18} />
-              Entrada
+              <ArrowUpCircle size={18} /> Entrada
             </button>
             <button
               type="button"
               onClick={() => setType('EXPENSE')}
-              className={`flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all ${isExpense ? 'bg-[#1f1630] text-red-400 shadow-md' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all ${
+                type === 'EXPENSE' 
+                  ? 'bg-red-500/20 text-red-400 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
             >
-              <ArrowDownCircle size={18} />
-              Saída
+              <ArrowDownCircle size={18} /> Saída
             </button>
           </div>
 
           {/* Valor */}
           <div>
-            <label className="text-xs text-gray-500 uppercase tracking-wider font-bold mb-2 block">Valor</label>
+            <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Valor</label>
             <div className="relative group">
-              <span className={`absolute left-4 top-1/2 -translate-y-1/2 text-xl font-bold ${themeClass}`}>R$</span>
-              <input 
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold group-focus-within:text-pink-500 transition-colors">R$</span>
+              <input
                 type="number"
                 step="0.01"
                 required
-                placeholder="0,00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className={`w-full bg-[#130b20] text-white text-2xl font-bold pl-12 pr-4 py-4 rounded-xl border border-transparent focus:border-${themeColor}-500/50 outline-none transition group-hover:bg-[#160d25]`}
+                placeholder="0.00"
+                className="w-full bg-[#130b20] text-white text-xl font-bold pl-11 pr-4 py-3.5 rounded-xl border border-gray-700 focus:border-pink-500 outline-none transition focus:ring-1 focus:ring-pink-500/30"
               />
             </div>
           </div>
 
-          {/* Descrição */}
-          <div>
-            <label className="text-xs text-gray-500 uppercase tracking-wider font-bold mb-2 block">Descrição</label>
-            <div className="relative">
-              <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input 
+          {/* Descrição e Categoria */}
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Descrição</label>
+              <input
                 type="text"
                 required
-                placeholder="Ex: Compras do mês"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full bg-[#130b20] text-white pl-11 pr-4 py-3.5 rounded-xl border border-transparent focus:border-white/20 outline-none transition"
+                placeholder="Ex: Compras do mês"
+                className="w-full bg-[#130b20] text-white px-4 py-3 rounded-xl border border-gray-700 focus:border-purple-500 outline-none transition placeholder:text-gray-600"
               />
             </div>
-          </div>
 
-          {/* Categoria */}
-          <div>
-             <label className="text-xs text-gray-500 uppercase tracking-wider font-bold mb-2 block">Categoria</label>
-             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-               {CATEGORIES[type].map((cat) => (
-                 <button
-                   key={cat}
-                   type="button"
-                   onClick={() => setCategory(cat)}
-                   className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${category === cat ? `${bgClass} text-white border-transparent` : 'bg-[#130b20] text-gray-400 border-white/5 hover:border-white/20'}`}
-                 >
-                   {cat}
-                 </button>
-               ))}
-             </div>
+            <div>
+              <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Categoria</label>
+              <input
+                type="text"
+                required
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="Ex: Alimentação, Transporte..."
+                className="w-full bg-[#130b20] text-white px-4 py-3 rounded-xl border border-gray-700 focus:border-purple-500 outline-none transition placeholder:text-gray-600"
+              />
+            </div>
           </div>
 
           {/* Botão Salvar */}
-          <button 
+          <button
             type="submit"
             disabled={loading}
-            className={`w-full py-4 rounded-xl font-bold text-white shadow-lg shadow-${themeColor}-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 ${bgClass} hover:opacity-90 disabled:opacity-50`}
+            className="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-purple-900/20 active:scale-[0.98] mt-2 flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
-            ) : (
-              <>
-                <Check size={20} />
-                {initialData ? 'Salvar Alterações' : 'Confirmar Transação'}
-              </>
-            )}
+            {loading ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}
+            {initialData ? 'Salvar Alterações' : 'Adicionar'}
           </button>
 
         </form>

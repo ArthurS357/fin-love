@@ -28,13 +28,12 @@ export default async function DashboardPage() {
   }
 
   // 1. Buscar dados do usuário e do parceiro
-  // Precisamos do spendingLimit para a aba de Metas
-  // Precisamos do ID do parceiro para buscar as transações dele também
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       name: true,
-      spendingLimit: true, // <--- Importante para a Meta
+      email: true, // <--- ADICIONADO: Necessário para a aba Perfil
+      spendingLimit: true,
       partnerId: true,
       partner: {
         select: {
@@ -46,15 +45,13 @@ export default async function DashboardPage() {
     }
   });
 
-  // 2. Definir de quem vamos buscar as transações
-  // Se tiver parceiro, o array userIds terá [idDoUsuario, idDoParceiro]
-  // Se não, apenas [idDoUsuario]
+  // 2. Definir IDs para buscar transações (Se tiver parceiro, busca dos dois)
   const userIds = [userId];
   if (user?.partnerId) {
     userIds.push(user.partnerId);
   }
 
-  // 3. Buscar transações (Do casal ou individual)
+  // 3. Buscar transações
   const transactions = await prisma.transaction.findMany({
     where: {
       userId: { in: userIds }
@@ -69,20 +66,19 @@ export default async function DashboardPage() {
     date: t.date.toISOString(),
   }));
 
-  // 4. Calcular o total da "Caixinha"
-  // Filtramos apenas as transações do tipo INVESTMENT
+  // 4. Calcular o total da "Caixinha" (Investimentos)
   const totalSavings = transactions
     .filter(t => t.type === 'INVESTMENT')
     .reduce((acc, t) => acc + t.amount, 0);
 
-  // Passamos todos os dados para o componente Client-Side
   return (
     <Dashboard
       initialTransactions={serializedTransactions}
       userName={user?.name?.split(' ')[0] || 'Visitante'}
+      userEmail={user?.email || ''} // <--- ADICIONADO: Passando o email
       partner={user?.partner}
-      spendingLimit={user?.spendingLimit || 0} // <--- Passando a meta
-      totalSavings={totalSavings} // <--- Passando o total da caixinha
+      spendingLimit={user?.spendingLimit || 0}
+      totalSavings={totalSavings}
     />
   );
 }

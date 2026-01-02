@@ -1,4 +1,3 @@
-// src/app/actions.ts
 'use server'
 
 import { prisma } from '@/lib/prisma'
@@ -14,7 +13,7 @@ const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-
 async function getUserId() {
   const cookieStore = await cookies()
   const token = cookieStore.get('token')?.value
-  
+
   if (!token) return null
 
   try {
@@ -176,7 +175,7 @@ export async function linkPartnerAction(formData: FormData) {
     // 1. Validar usuário atual
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, partnerId: true } 
+      select: { id: true, email: true, partnerId: true }
     })
 
     if (!currentUser) return { error: 'Usuário inválido.' }
@@ -289,7 +288,7 @@ export async function addSavingsAction(formData: FormData) {
     await prisma.transaction.create({
       data: {
         userId,
-        type: 'INVESTMENT', 
+        type: 'INVESTMENT',
         amount,
         description,
         category: 'Caixinha',
@@ -301,5 +300,72 @@ export async function addSavingsAction(formData: FormData) {
     return { success: true, message: 'Valor guardado com sucesso!' };
   } catch (error) {
     return { error: 'Erro ao guardar valor.' };
+  }
+}
+
+// ==========================================
+// PERFIL & CONFIGURAÇÕES
+// ==========================================
+
+export async function updateSavingsGoalNameAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Usuário não autenticado' };
+
+  const name = formData.get('name') as string;
+  if (!name) return { error: 'Nome inválido' };
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { partnerId: true }
+    });
+
+    // Atualiza o nome para o usuário atual
+    await prisma.user.update({
+      where: { id: userId },
+      data: { savingsGoal: name }
+    });
+
+    // Se tiver parceiro, atualiza o dele também para manter sincronizado
+    if (user?.partnerId) {
+      await prisma.user.update({
+        where: { id: user.partnerId },
+        data: { savingsGoal: name }
+      });
+    }
+
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Nome da caixinha atualizado!' };
+  } catch (error) {
+    return { error: 'Erro ao atualizar nome.' };
+  }
+}
+
+export async function updatePasswordAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Usuário não autenticado' };
+
+  const currentPassword = formData.get('currentPassword') as string;
+  const newPassword = formData.get('newPassword') as string;
+
+  if (!currentPassword || !newPassword) return { error: 'Preencha todos os campos.' };
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return { error: 'Usuário não encontrado.' };
+
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) return { error: 'Senha atual incorreta.' };
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword }
+    });
+
+    return { success: true, message: 'Senha alterada com sucesso!' };
+  } catch (error) {
+    return { error: 'Erro ao alterar senha.' };
   }
 }

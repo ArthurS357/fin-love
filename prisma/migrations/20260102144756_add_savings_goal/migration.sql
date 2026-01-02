@@ -5,6 +5,7 @@ CREATE TABLE "User" (
     "password" TEXT NOT NULL,
     "name" TEXT,
     "spendingLimit" REAL DEFAULT 0,
+    "savingsGoal" TEXT DEFAULT 'Caixinha dos Sonhos',
     "partnerId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
@@ -14,13 +15,13 @@ CREATE TABLE "User" (
 -- CreateTable
 CREATE TABLE "Transaction" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "description" TEXT NOT NULL,
     "amount" REAL NOT NULL,
-    "type" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
     "category" TEXT NOT NULL,
     "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "type" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateIndex

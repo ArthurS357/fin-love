@@ -1,25 +1,22 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:./dev.db"
 }
-
-// prisma/schema.prisma
 
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
   password      String   
   name          String?
-  // Novo campo para a Meta Financeira (GoalsTab)
   spendingLimit Float?   @default(0)
+  
+  savingsGoal   String?  @default("Caixinha dos Sonhos")
 
-  partnerId     String?  @unique
+  partnerId     String?  @unique // Mantém unique para 1:1
   partner       User?    @relation("Couple", fields: [partnerId], references: [id])
   partnerOf     User?    @relation("Couple")
 
@@ -30,13 +27,15 @@ model User {
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
+  id          String   @id @default(uuid())
+  amount      Float
   description String
-  amount      Float   
-  type        String  
-  category    String   
+  category    String
   date        DateTime @default(now())
   
+  // Tipos atualizados para incluir Investimento
+  type        String   // 'INCOME', 'EXPENSE' ou 'INVESTMENT'
+
   userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -1,21 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "sonner"; 
+import { Inter } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "sonner"; 
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "FinLove",
-  description: "Financial Control for Couples",
+  title: "FinLove - Finanças para Casais",
+  description: "Gerencie suas finanças em conjunto, alcance metas e realize sonhos a dois.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
@@ -25,12 +20,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#130b20]`}
-      >
+      <body className={`${inter.className} bg-[#130b20] text-gray-100 antialiased selection:bg-pink-500/30 selection:text-pink-200`}>
+        {/* Renderiza as páginas */}
         {children}
-        {/* Adicionar o componente Toaster com tema escuro */}
-        <Toaster position="top-center" richColors theme="dark" />
+        
+        {/* Componente de notificações (Toasts) */}
+        <Toaster 
+          position="top-center" 
+          richColors 
+          theme="dark" 
+          toastOptions={{
+            style: { background: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
+          }}
+        />
       </body>
     </html>
   );

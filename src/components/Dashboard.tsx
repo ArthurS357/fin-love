@@ -17,14 +17,22 @@ import PartnerTab from './tabs/PartnerTab';
 import GoalsTab from './tabs/GoalsTab';
 import TransactionModal from './modals/TransactionModal';
 
-// Interface atualizada para receber o nome do utilizador e dados do parceiro
+// Interface atualizada com todas as novas props vindas do servidor
 interface DashboardProps {
   initialTransactions: any[];
   userName: string;
-  partner?: { name: string | null; email: string } | null; // <--- NOVO: Tipo do parceiro
+  partner?: { name: string | null; email: string } | null;
+  spendingLimit: number; // Meta de gastos
+  totalSavings: number;  // Total da Caixinha
 }
 
-export default function Dashboard({ initialTransactions, userName, partner }: DashboardProps) {
+export default function Dashboard({ 
+  initialTransactions, 
+  userName, 
+  partner, 
+  spendingLimit, 
+  totalSavings 
+}: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -42,15 +50,25 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
     return transactions.filter(t => isSameMonth(t.date, currentDate));
   }, [transactions, currentDate]);
 
-  const income = monthlyTransactions.filter(t => t.type === 'INCOME').reduce((acc, t) => acc + t.amount, 0);
-  const expense = monthlyTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, t) => acc + t.amount, 0);
+  // Cálculos financeiros (ignorando investimentos para o fluxo de caixa mensal padrão)
+  const income = monthlyTransactions
+    .filter(t => t.type === 'INCOME')
+    .reduce((acc, t) => acc + t.amount, 0);
+    
+  const expense = monthlyTransactions
+    .filter(t => t.type === 'EXPENSE')
+    .reduce((acc, t) => acc + t.amount, 0);
+    
   const balance = income - expense;
 
+  // Dados para gráficos
   const pieData = useMemo(() => {
     const categories: Record<string, number> = {};
-    monthlyTransactions.filter(t => t.type === 'EXPENSE').forEach(t => {
-      categories[t.category] = (categories[t.category] || 0) + t.amount;
-    });
+    monthlyTransactions
+      .filter(t => t.type === 'EXPENSE')
+      .forEach(t => {
+        categories[t.category] = (categories[t.category] || 0) + t.amount;
+      });
     return Object.keys(categories).map((key) => ({ name: key, value: categories[key] }));
   }, [monthlyTransactions]);
 
@@ -99,18 +117,17 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Navegação Central */}
+          {/* Navegação Central (Desktop) */}
           <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Lançamentos" icon={<Clock size={18} />} />
+            {/* Renomeado para Extrato */}
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
           {/* Área do Usuário (Direita) */}
           <div className="flex items-center gap-4">
-
-            {/* Saudação e Logout (Desktop) */}
             <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">
               <div className="text-right">
                 <p className="text-[10px] text-gray-400 uppercase tracking-wider">Olá,</p>
@@ -125,7 +142,6 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
               </button>
             </div>
 
-            {/* Botão Nova Transação */}
             <button
               onClick={handleOpenNew}
               className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95"
@@ -151,11 +167,10 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
                   {activeTab === 'history' && 'Extrato Detalhado'}
                 </h1>
                 <p className="text-gray-400 text-sm hidden md:block">
-                  {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
+                  {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
                 </p>
               </div>
 
-              {/* Botão de Logout Mobile */}
               <button
                 onClick={handleLogout}
                 className="md:hidden p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5"
@@ -177,12 +192,44 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
           </div>
         )}
 
-        <div className="transition-all duration-500 ease-out">
-          {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
-          {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
-          {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
-          {/* Aqui passamos a propriedade partner para o componente */}
-          {activeTab === 'partner' && <PartnerTab partner={partner} />}
+        {/* Conteúdo com Animação na Troca de Abas */}
+        {/* 'key={activeTab}' força o React a recriar o div, disparando a animação */}
+        <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
+          
+          {activeTab === 'home' && (
+            <HomeTab 
+              income={income} 
+              expense={expense} 
+              balance={balance} 
+              pieData={pieData} 
+              barData={barData} 
+            />
+          )}
+          
+          {activeTab === 'goals' && (
+            <GoalsTab 
+              income={income} 
+              expense={expense} 
+              transactions={monthlyTransactions} 
+              currentLimit={spendingLimit} // Passando a meta
+            />
+          )}
+          
+          {activeTab === 'history' && (
+            <HistoryTab 
+              transactions={monthlyTransactions} 
+              onEdit={handleEdit} 
+              onDelete={handleDelete} 
+            />
+          )}
+          
+          {activeTab === 'partner' && (
+            <PartnerTab 
+              partner={partner} 
+              totalSavings={totalSavings} // Passando saldo da caixinha
+            />
+          )}
+
         </div>
 
       </main>
@@ -194,6 +241,8 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
         <nav className="relative bg-[#1a1025]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] px-4 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
           <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
+          
+          {/* Botão Central Flutuante Mobile */}
           <div className="absolute left-1/2 -translate-x-1/2 -top-6">
             <button
               onClick={handleOpenNew}
@@ -202,7 +251,10 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
               <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
             </button>
           </div>
-          <div className="w-8"></div>
+          
+          <div className="w-8"></div> {/* Espaçador para o botão central */}
+          
+          {/* Renomeado para Extrato */}
           <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={22} />} label="Extrato" />
           <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={22} />} label="Nós" />
         </nav>
@@ -211,7 +263,7 @@ export default function Dashboard({ initialTransactions, userName, partner }: Da
   );
 }
 
-// Componentes auxiliares
+// Componentes auxiliares visuais
 function TabButton({ active, onClick, label, icon }: any) {
   return (
     <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>

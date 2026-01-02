@@ -1,23 +1,38 @@
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useOptimistic, startTransition } from 'react';
+import dynamic from 'next/dynamic'; // <--- Import para Lazy Loading
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
-  Eye, EyeOff // <--- Novos ícones
+  Eye, EyeOff
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
+// OTIMIZAÇÃO 1: Code Splitting (Lazy Loading)
+// A HomeTab carrega normal (é a primeira que aparece)
 import HomeTab from './tabs/HomeTab';
-import HistoryTab from './tabs/HistoryTab';
-import PartnerTab from './tabs/PartnerTab';
-import GoalsTab from './tabs/GoalsTab';
-import ProfileTab from './tabs/ProfileTab';
-import TransactionModal from './modals/TransactionModal';
-import AIReportModal from './modals/AIReportModal';
+
+// As outras abas só carregam o JS se o usuário clicar nelas (economiza banda inicial)
+const HistoryTab = dynamic(() => import('./tabs/HistoryTab'), { 
+  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando histórico...</div>
+});
+const PartnerTab = dynamic(() => import('./tabs/PartnerTab'), {
+  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando conexão...</div>
+});
+const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), {
+  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando metas...</div>
+});
+const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
+  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando perfil...</div>
+});
+
+// Modais também sob demanda
+const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
+const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
 
 interface DashboardProps {
   initialTransactions: any[];
@@ -40,33 +55,38 @@ export default function Dashboard({
 }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
-  
-  // Estado do Modo Privacidade (Começa visível = false)
   const [privacyMode, setPrivacyMode] = useState(false); 
-
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  const transactions = useMemo(() => {
+  // Normaliza as datas vindas do servidor
+  const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
       date: typeof t.date === 'string' ? parseISO(t.date) : t.date
     }));
   }, [initialTransactions]);
 
+  // OTIMIZAÇÃO 2: Optimistic UI (React 19)
+  // 'transactions' agora é a versão otimista. Se deletar, atualiza na hora.
+  const [transactions, deleteOptimisticTransaction] = useOptimistic(
+    normalizedTransactions,
+    (state, idToDelete: string) => state.filter((t) => t.id !== idToDelete)
+  );
+
   const monthlyTransactions = useMemo(() => {
     return transactions.filter(t => isSameMonth(t.date, currentDate));
-  }, [transactions, currentDate]);
+  }, [transactions, currentDate]); // Depende de 'transactions' (otimista)
 
   const income = monthlyTransactions
     .filter(t => t.type === 'INCOME')
-    .reduce((acc, t) => acc + t.amount, 0);
+    .reduce((acc, t) => acc + Number(t.amount), 0);
     
   const expense = monthlyTransactions
     .filter(t => t.type === 'EXPENSE')
-    .reduce((acc, t) => acc + t.amount, 0);
+    .reduce((acc, t) => acc + Number(t.amount), 0);
     
   const balance = income - expense;
 
@@ -75,7 +95,7 @@ export default function Dashboard({
     monthlyTransactions
       .filter(t => t.type === 'EXPENSE')
       .forEach(t => {
-        categories[t.category] = (categories[t.category] || 0) + t.amount;
+        categories[t.category] = (categories[t.category] || 0) + Number(t.amount);
       });
     return Object.keys(categories).map((key) => ({ name: key, value: categories[key] }));
   }, [monthlyTransactions]);
@@ -93,8 +113,14 @@ export default function Dashboard({
   };
 
   const handleDelete = async (id: string) => {
+    // 1. UI Update Instantâneo (Optimistic)
+    startTransition(() => {
+      deleteOptimisticTransaction(id);
+    });
+
+    // 2. Chama o Servidor em Background
     toast.promise(deleteTransaction(id), {
-      loading: 'Excluindo...',
+      loading: 'Sincronizando...', // Geralmente nem aparece de tão rápido
       success: 'Transação removida!',
       error: 'Erro ao excluir.'
     });
@@ -106,16 +132,12 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans relative overflow-hidden selection:bg-pink-500/30">
-
-      {/* Background Ambience */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-      {/* Header Desktop & Mobile Otimizado */}
+      {/* Header */}
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/80 border-b border-white/5 supports-[backdrop-filter]:bg-[#130b20]/60">
         <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between relative">
-
-          {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform z-50" onClick={() => setActiveTab('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
@@ -124,7 +146,6 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Nav Central Desktop */}
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
@@ -132,44 +153,25 @@ export default function Dashboard({
             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
-          {/* Área Direita (Ações + Menu) */}
           <div className="flex items-center gap-3 md:gap-4 z-50 relative">
-            
-            {/* Botão Modo Privacidade (Olhinho) */}
-            <button
-              onClick={() => setPrivacyMode(!privacyMode)}
-              className="p-2 text-purple-300 hover:text-white transition active:scale-95 hover:bg-white/5 rounded-full"
-              title={privacyMode ? "Mostrar valores" : "Esconder valores"}
-            >
+            <button onClick={() => setPrivacyMode(!privacyMode)} className="p-2 text-purple-300 hover:text-white transition active:scale-95 hover:bg-white/5 rounded-full">
               {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
 
-            {/* Botão IA */}
-            <button
-              onClick={() => setIsAIModalOpen(true)}
-              className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
-              title="Consultor IA"
-            >
+            <button onClick={() => setIsAIModalOpen(true)} className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white">
               <Sparkles size={14} />
               <span className="hidden md:inline">IA</span>
             </button>
 
-            {/* Botão Novo */}
             <button onClick={handleOpenNew} className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95">
               <Plus size={18} strokeWidth={3} />
               <span>Novo</span>
             </button>
 
-            {/* MENU HAMBÚRGUER */}
             <div className="relative">
-              <button 
-                onClick={() => setIsMenuOpen(!isMenuOpen)} 
-                className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'bg-transparent text-gray-300 border-transparent hover:bg-white/5'}`}
-              >
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'bg-transparent text-gray-300 border-transparent hover:bg-white/5'}`}>
                 <Menu size={24} />
               </button>
-
-              {/* Dropdown Menu */}
               {isMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
@@ -179,18 +181,11 @@ export default function Dashboard({
                       <p className="text-sm font-bold text-white truncate">{userName}</p>
                       <p className="text-xs text-gray-400 truncate">{userEmail}</p>
                     </div>
-                    
                     <div className="p-2">
-                      <button 
-                        onClick={() => { setActiveTab('profile'); setIsMenuOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
-                      >
+                      <button onClick={() => { setActiveTab('profile'); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all">
                         <UserIcon size={16} className="text-pink-400" /> Meu Perfil
                       </button>
-                      <button 
-                        onClick={() => { handleLogout(); setIsMenuOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all"
-                      >
+                      <button onClick={() => { handleLogout(); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all">
                         <LogOut size={16} /> Sair
                       </button>
                     </div>
@@ -198,14 +193,12 @@ export default function Dashboard({
                 </>
               )}
             </div>
-
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
-
         {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
             <div className="w-full md:w-auto flex justify-between items-center">
@@ -219,15 +212,12 @@ export default function Dashboard({
                   {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
                 </p>
               </div>
-
-              {/* Ações Mobile */}
               <div className="flex gap-2 md:hidden">
                 <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20 active:scale-95 transition">
                   <Sparkles size={20} />
                 </button>
               </div>
             </div>
-
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
               <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"><ChevronLeft size={18} /></button>
               <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
@@ -243,15 +233,7 @@ export default function Dashboard({
 
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
           {activeTab === 'home' && (
-            // Agora passamos o privacyMode para a HomeTab
-            <HomeTab 
-              income={income} 
-              expense={expense} 
-              balance={balance} 
-              pieData={pieData} 
-              barData={barData} 
-              privacyMode={privacyMode} 
-            />
+            <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} privacyMode={privacyMode} />
           )}
           {activeTab === 'goals' && (
             <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
@@ -271,21 +253,16 @@ export default function Dashboard({
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* Menu Mobile Flutuante */}
+      {/* Menu Mobile */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
           <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
-          
           <div className="relative -top-8 mx-0.5">
-            <button 
-              onClick={handleOpenNew} 
-              className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
-            >
+            <button onClick={handleOpenNew} className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group">
               <Plus size={28} strokeWidth={2.5} className="group-hover:rotate-90 transition-transform" />
             </button>
           </div>
-          
           <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={22} />} label="Extrato" />
           <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={22} />} label="Nós" />
         </nav>

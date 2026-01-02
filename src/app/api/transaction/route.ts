@@ -1,22 +1,39 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { cookies } from 'next/headers';
+import { jwtVerify } from 'jose';
 
-// GET: Listar todas as transações de um usuário
+// Helper para extrair usuário do token (Reutilize ou importe de um utils)
+async function getAuthenticatedUserId() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('token')?.value;
+  if (!token) return null;
+
+  try {
+    const secretStr = process.env.JWT_SECRET;
+    if (!secretStr) throw new Error('JWT_SECRET missing');
+    const key = new TextEncoder().encode(secretStr);
+
+    const { payload } = await jwtVerify(token, key);
+    return payload.sub as string;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    // SEGURANÇA: Pegar ID do token, não da URL
+    const userId = await getAuthenticatedUserId();
 
     if (!userId) {
-      return NextResponse.json(
-        { error: 'ID do usuário é obrigatório' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const transactions = await prisma.transaction.findMany({
-      where: { userId },
+      where: { userId }, // Garante que só busca dados do usuário logado
       orderBy: { date: 'desc' },
+      take: 50, // OTIMIZAÇÃO: Limitar resultados para não travar o front
     });
 
     return NextResponse.json(transactions);
@@ -28,14 +45,18 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Criar uma nova transação
 export async function POST(request: Request) {
   try {
+    const userId = await getAuthenticatedUserId();
+    if (!userId) {
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+    }
+
     const body = await request.json();
-    const { description, amount, type, category, date, userId } = body;
+    const { description, amount, type, category, date } = body;
 
     // Validação básica
-    if (!description || !amount || !type || !category || !userId) {
+    if (!description || !amount || !type || !category) {
       return NextResponse.json(
         { error: 'Campos obrigatórios faltando' },
         { status: 400 }
@@ -49,13 +70,12 @@ export async function POST(request: Request) {
         type,
         category,
         date: date ? new Date(date) : new Date(),
-        userId,
+        userId, // SEGURANÇA: Usa o ID forçado do token
       },
     });
 
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {
-    console.error('Erro ao criar transação:', error);
     return NextResponse.json(
       { error: 'Erro ao criar transação' },
       { status: 500 }

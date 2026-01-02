@@ -1,4 +1,6 @@
 'use server'
+'use server'
+import 'server-only';
 
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
@@ -309,29 +311,65 @@ export async function updatePasswordAction(formData: FormData) {
   return { success: true, message: 'Senha atualizada!' }
 }
 
-// 13. IA Advice
+// 13. IA Advice (OTIMIZADO COM CACHE)
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
 
   try {
-    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const user = await prisma.user.findUnique({ where: { id: userId }, include: { partner: true } })
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId }, 
+      include: { partner: true } 
+    })
+
+    if (!user) return { error: 'Usuário não encontrado.' }
+
+    // OTIMIZAÇÃO: Verifica Cache (Evita chamadas desnecessárias à API)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    if (user.lastAdvice && user.lastAdviceDate && user.lastAdviceDate > oneDayAgo) {
+      // Retorna o conselho salvo instantaneamente
+      return { success: true, message: user.lastAdvice };
+    }
+
+    // Se não tiver cache ou for antigo, busca dados para gerar novo
+    const thirtyDaysAgo = new Date(); 
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
     const transactions = await prisma.transaction.findMany({
-      where: { userId: { in: [userId, user?.partnerId || ''].filter(Boolean) }, date: { gte: thirtyDaysAgo } },
-      orderBy: { date: 'desc' }, take: 50
+      where: { 
+        userId: { in: [userId, user.partnerId || ''].filter(Boolean) }, 
+        date: { gte: thirtyDaysAgo } 
+      },
+      orderBy: { date: 'desc' }, 
+      take: 50
     })
 
     if (transactions.length === 0) return { success: false, error: 'Sem dados suficientes.' }
 
-    const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${t.amount} [${t.type}]`).join('\n')
-    const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${user?.spendingLimit}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável.`
+    const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${Number(t.amount)} [${t.type}]`).join('\n')
+    // Nota: Usei Number(t.amount) caso tenha mudado para Decimal no passo anterior
+
+    const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${Number(user.spendingLimit)}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável e direto.`;
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }) // Flash é mais rápido e barato
     const result = await model.generateContent(prompt)
-    return { success: true, message: result.response.text() }
-  } catch { return { error: 'IA indisponível.' } }
+    const adviceText = result.response.text();
+
+    // Salva no banco para não gastar API na próxima vez (Cache)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { 
+        lastAdvice: adviceText,
+        lastAdviceDate: new Date()
+      }
+    });
+
+    return { success: true, message: adviceText }
+  } catch (error) { 
+    console.error(error);
+    return { error: 'IA indisponível no momento.' } 
+  }
 }
 
 // 14. Categorias: Listar
@@ -374,7 +412,7 @@ export async function deleteCategoryAction(id: string) {
   return { success: true };
 }
 
-// 17. Processar Recorrência
+// 17. Processar Recorrência (OTIMIZADO COM BATCH INSERT)
 export async function checkRecurringTransactionsAction() {
   const userId = await getUserId();
   if (!userId) return;
@@ -384,27 +422,50 @@ export async function checkRecurringTransactionsAction() {
       where: { userId, active: true, nextRun: { lte: new Date() } }
     });
 
+    if (pending.length === 0) return;
+
+    const newTransactions = [];
+    const updates = [];
+
+    // Prepara os dados em memória (rápido)
     for (const rec of pending) {
       let runDate = new Date(rec.nextRun);
       const now = new Date();
 
-      while (isBefore(runDate, now) || runDate.getTime() === now.getTime()) {
-        await prisma.transaction.create({
-          data: {
-            userId,
-            type: rec.type as any,
-            amount: rec.amount,
-            description: `${rec.description} (Auto)`,
-            category: rec.category,
-            date: runDate
-          }
+      while (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) {
+        newTransactions.push({
+          userId,
+          type: rec.type, // Ajuste se seu TS reclamar de enum
+          amount: rec.amount,
+          description: `${rec.description} (Auto)`,
+          category: rec.category,
+          date: new Date(runDate) // Clona a data para evitar referência
         });
         runDate = addMonths(runDate, 1);
       }
-      await prisma.recurringTransaction.update({ where: { id: rec.id }, data: { nextRun: runDate } });
+      
+      // Prepara atualização da data da recorrência
+      updates.push(
+        prisma.recurringTransaction.update({ 
+          where: { id: rec.id }, 
+          data: { nextRun: runDate } 
+        })
+      );
     }
-    if (pending.length > 0) revalidatePath('/dashboard');
-  } catch (err) { console.error(err) }
+
+    // Executa no banco de dados (Eficiente)
+    // 1. Cria todas as transações de uma vez
+    if (newTransactions.length > 0) {
+      await prisma.transaction.createMany({
+        data: newTransactions
+      });
+    }
+
+    // 2. Atualiza as datas das recorrências (Paralelo)
+    await Promise.all(updates);
+
+    revalidatePath('/dashboard');
+  } catch (err) { console.error("Erro recorrência:", err) }
 }
 
 // 18. Gamificação
@@ -441,7 +502,7 @@ export async function checkBadgesAction() {
     if (hasInvestment && !earnedCodes.includes('SAVER_1')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
-    const totalSaved = user.transactions.filter(t => t.type === 'INVESTMENT').reduce((acc, t) => acc + t.amount, 0);
+    const totalSaved = user.transactions.filter(t => t.type === 'INVESTMENT').reduce((acc, t) => acc + t.amount.toNumber(), 0);
     if (totalSaved >= 1000 && !earnedCodes.includes('BIG_SAVER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
     }

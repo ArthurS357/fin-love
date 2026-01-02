@@ -13,8 +13,10 @@ model User {
   email         String   @unique
   password      String   
   name          String?
-  spendingLimit Float?   @default(0)
+  spendingLimit Decimal? @default(0) @db.Decimal(10, 2)
   savingsGoal   String?  @default("Caixinha dos Sonhos")
+  lastAdvice     String?   @db.Text // Use Text para suportar textos longos
+  lastAdviceDate DateTime?
 
   partnerId     String?  @unique
   partner       User?    @relation("Couple", fields: [partnerId], references: [id])
@@ -75,12 +77,16 @@ model RecurringTransaction {
 
 model Transaction {
   id          String   @id @default(uuid())
-  amount      Float
+  
+  // OTIMIZAÇÃO: Decimal para evitar erros de centavos
+  amount      Decimal  @db.Decimal(10, 2)
   description String
   category    String
   date        DateTime @default(now())
-  type        String   // 'INCOME', 'EXPENSE', 'INVESTMENT'
-
+  type        String   
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PERFORMANCE: Índice Composto para queries "Minhas transações recentes"
+  @@index([userId, date(sort: Desc)])
 }

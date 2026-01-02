@@ -4,8 +4,10 @@ CREATE TABLE "User" (
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
     "name" TEXT,
-    "spendingLimit" DOUBLE PRECISION DEFAULT 0,
+    "spendingLimit" DECIMAL(10,2) DEFAULT 0,
     "savingsGoal" TEXT DEFAULT 'Caixinha dos Sonhos',
+    "lastAdvice" TEXT,
+    "lastAdviceDate" TIMESTAMP(3),
     "partnerId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -57,7 +59,7 @@ CREATE TABLE "RecurringTransaction" (
 -- CreateTable
 CREATE TABLE "Transaction" (
     "id" TEXT NOT NULL,
-    "amount" DOUBLE PRECISION NOT NULL,
+    "amount" DECIMAL(10,2) NOT NULL,
     "description" TEXT NOT NULL,
     "category" TEXT NOT NULL,
     "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -75,6 +77,9 @@ CREATE UNIQUE INDEX "User_partnerId_key" ON "User"("partnerId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Category_userId_name_key" ON "Category"("userId", "name");
+
+-- CreateIndex
+CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date" DESC);
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

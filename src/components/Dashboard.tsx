@@ -17,13 +17,14 @@ import PartnerTab from './tabs/PartnerTab';
 import GoalsTab from './tabs/GoalsTab';
 import TransactionModal from './modals/TransactionModal';
 
-// Interface atualizada para receber o nome do utilizador
+// Interface atualizada para receber o nome do utilizador e dados do parceiro
 interface DashboardProps {
   initialTransactions: any[];
   userName: string;
+  partner?: { name: string | null; email: string } | null; // <--- NOVO: Tipo do parceiro
 }
 
-export default function Dashboard({ initialTransactions, userName }: DashboardProps) {
+export default function Dashboard({ initialTransactions, userName, partner }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -180,7 +181,8 @@ export default function Dashboard({ initialTransactions, userName }: DashboardPr
           {activeTab === 'home' && <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />}
           {activeTab === 'goals' && <GoalsTab income={income} expense={expense} transactions={monthlyTransactions} />}
           {activeTab === 'history' && <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />}
-          {activeTab === 'partner' && <PartnerTab />}
+          {/* Aqui passamos a propriedade partner para o componente */}
+          {activeTab === 'partner' && <PartnerTab partner={partner} />}
         </div>
 
       </main>

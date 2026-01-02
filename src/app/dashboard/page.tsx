@@ -27,30 +27,62 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // Buscar usuário (apenas o nome) e transações em paralelo para ser mais rápido
-  const [user, transactions] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true }
-    }),
-    prisma.transaction.findMany({
-      where: { userId },
-      orderBy: { date: 'desc' },
-    })
-  ]);
+  // 1. Buscar dados do usuário e do parceiro
+  // Precisamos do spendingLimit para a aba de Metas
+  // Precisamos do ID do parceiro para buscar as transações dele também
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      name: true,
+      spendingLimit: true, // <--- Importante para a Meta
+      partnerId: true,
+      partner: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }
+    }
+  });
 
-  // Serialização dos dados
+  // 2. Definir de quem vamos buscar as transações
+  // Se tiver parceiro, o array userIds terá [idDoUsuario, idDoParceiro]
+  // Se não, apenas [idDoUsuario]
+  const userIds = [userId];
+  if (user?.partnerId) {
+    userIds.push(user.partnerId);
+  }
+
+  // 3. Buscar transações (Do casal ou individual)
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: { in: userIds }
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  // Serialização dos dados (Date -> String para passar pro Client Component)
   const serializedTransactions = transactions.map(t => ({
     ...t,
     amount: t.amount,
     date: t.date.toISOString(),
   }));
 
-  // Passamos o nome do usuário para o componente
+  // 4. Calcular o total da "Caixinha"
+  // Filtramos apenas as transações do tipo INVESTMENT
+  const totalSavings = transactions
+    .filter(t => t.type === 'INVESTMENT')
+    .reduce((acc, t) => acc + t.amount, 0);
+
+  // Passamos todos os dados para o componente Client-Side
   return (
-    <Dashboard 
-      initialTransactions={serializedTransactions} 
-      userName={user?.name?.split(' ')[0] || 'Visitante'} 
+    <Dashboard
+      initialTransactions={serializedTransactions}
+      userName={user?.name?.split(' ')[0] || 'Visitante'}
+      partner={user?.partner}
+      spendingLimit={user?.spendingLimit || 0} // <--- Passando a meta
+      totalSavings={totalSavings} // <--- Passando o total da caixinha
     />
   );
 }

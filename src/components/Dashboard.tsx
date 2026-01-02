@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon
@@ -15,30 +15,31 @@ import HomeTab from './tabs/HomeTab';
 import HistoryTab from './tabs/HistoryTab';
 import PartnerTab from './tabs/PartnerTab';
 import GoalsTab from './tabs/GoalsTab';
-import ProfileTab from './tabs/ProfileTab'; // <--- IMPORTANTE: Certifique-se que este arquivo existe
+import ProfileTab from './tabs/ProfileTab'; // Certifique-se que este arquivo existe
 import TransactionModal from './modals/TransactionModal';
 
-// Interface atualizada com TODAS as props (Metas, Caixinha e Perfil)
+// Interface atualizada com todas as props necessárias
 interface DashboardProps {
   initialTransactions: any[];
   userName: string;
-  userEmail: string; // <--- NOVO: Email do usuário para o Perfil
+  userEmail: string;
   partner?: { name: string | null; email: string } | null;
-  spendingLimit: number; 
+  spendingLimit: number;
   totalSavings: number;
+  savingsGoalName: string; // Nova prop para o nome da caixinha
 }
 
-export default function Dashboard({ 
-  initialTransactions, 
-  userName, 
-  userEmail, // <--- Recebendo o email
-  partner, 
-  spendingLimit, 
-  totalSavings 
+export default function Dashboard({
+  initialTransactions,
+  userName,
+  userEmail,
+  partner,
+  spendingLimit,
+  totalSavings,
+  savingsGoalName
 }: DashboardProps) {
-  // Adicionado 'profile' aos estados possíveis
+  // Estados
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
-  
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
@@ -58,11 +59,11 @@ export default function Dashboard({
   const income = monthlyTransactions
     .filter(t => t.type === 'INCOME')
     .reduce((acc, t) => acc + t.amount, 0);
-    
+
   const expense = monthlyTransactions
     .filter(t => t.type === 'EXPENSE')
     .reduce((acc, t) => acc + t.amount, 0);
-    
+
   const balance = income - expense;
 
   const pieData = useMemo(() => {
@@ -80,7 +81,7 @@ export default function Dashboard({
     { name: 'Saídas', valor: expense },
   ];
 
-  // --- Funções Auxiliares ---
+  // --- Handlers ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
 
   const handleEdit = (t: any) => {
@@ -120,23 +121,19 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Navegação Central */}
+          {/* Navegação Central (Desktop) */}
           <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
-            {/* Botão de Perfil adicionado na navegação */}
             <TabButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} label="Perfil" icon={<UserIcon size={18} />} />
           </nav>
 
           {/* Área do Usuário (Direita) */}
           <div className="flex items-center gap-4">
-
-            {/* Saudação e Logout (Desktop) */}
             <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">
-              {/* Ao clicar no nome, vai para o perfil */}
-              <div 
+              <div
                 className="text-right cursor-pointer hover:opacity-80 transition"
                 onClick={() => setActiveTab('profile')}
               >
@@ -152,7 +149,6 @@ export default function Dashboard({
               </button>
             </div>
 
-            {/* Botão Nova Transação */}
             <button
               onClick={handleOpenNew}
               className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95"
@@ -166,7 +162,7 @@ export default function Dashboard({
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 mt-2 relative z-10">
 
-        {/* Controle de Data (Escondido na aba de Perfil e Parceiro para limpar a tela) */}
+        {/* Controle de Data (Oculto em Perfil e Parceiro) */}
         {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 animate-in fade-in slide-in-from-top-2 duration-500 gap-4 md:gap-0">
 
@@ -178,11 +174,10 @@ export default function Dashboard({
                   {activeTab === 'history' && 'Extrato Detalhado'}
                 </h1>
                 <p className="text-gray-400 text-sm hidden md:block">
-                  {activeTab === 'history' ? 'Visualize e gerencie seus gastos.' : 'Acompanhe suas finanças.'}
+                  {activeTab === 'history' ? 'Visualize e gerencie seus lançamentos.' : 'Acompanhe suas finanças.'}
                 </p>
               </div>
 
-              {/* Botão de Logout Mobile */}
               <button
                 onClick={handleLogout}
                 className="md:hidden p-2 text-gray-400 hover:text-red-400 bg-white/5 rounded-full border border-white/5"
@@ -204,32 +199,51 @@ export default function Dashboard({
           </div>
         )}
 
+        {/* Renderização das Abas */}
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
+
           {activeTab === 'home' && (
-            <HomeTab income={income} expense={expense} balance={balance} pieData={pieData} barData={barData} />
+            <HomeTab
+              income={income}
+              expense={expense}
+              balance={balance}
+              pieData={pieData}
+              barData={barData}
+            />
           )}
-          
+
           {activeTab === 'goals' && (
-             <GoalsTab 
-               income={income} 
-               expense={expense} 
-               transactions={monthlyTransactions} 
-               currentLimit={spendingLimit}
-             />
+            <GoalsTab
+              income={income}
+              expense={expense}
+              transactions={monthlyTransactions}
+              currentLimit={spendingLimit}
+            />
           )}
 
           {activeTab === 'history' && (
-            <HistoryTab transactions={monthlyTransactions} onEdit={handleEdit} onDelete={handleDelete} />
-          )}
-          
-          {activeTab === 'partner' && (
-            <PartnerTab partner={partner} totalSavings={totalSavings} />
+            <HistoryTab
+              transactions={monthlyTransactions}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
           )}
 
-          {/* Renderização da Aba Perfil */}
-          {activeTab === 'profile' && (
-            <ProfileTab userName={userName} userEmail={userEmail} />
+          {activeTab === 'partner' && (
+            <PartnerTab
+              partner={partner}
+              totalSavings={totalSavings}
+              savingsGoalName={savingsGoalName} // Passando a prop corrigida
+            />
           )}
+
+          {activeTab === 'profile' && (
+            <ProfileTab
+              userName={userName}
+              userEmail={userEmail}
+            />
+          )}
+
         </div>
 
       </main>
@@ -241,9 +255,9 @@ export default function Dashboard({
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] px-3 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={20} />} label="Início" />
           <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={20} />} label="Metas" />
-          
+
           <div className="relative -top-6 mx-1">
-             <button
+            <button
               onClick={handleOpenNew}
               className="bg-gradient-to-t from-pink-600 to-purple-600 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_20px_rgba(236,72,153,0.5)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
             >
@@ -253,7 +267,6 @@ export default function Dashboard({
 
           <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={20} />} label="Extrato" />
           <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={20} />} label="Nós" />
-          {/* Ícone de Perfil Mobile */}
           <NavIcon active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<UserIcon size={20} />} label="Perfil" />
         </nav>
       </div>
@@ -261,7 +274,7 @@ export default function Dashboard({
   );
 }
 
-// Componentes auxiliares
+// Componentes auxiliares visuais
 function TabButton({ active, onClick, label, icon }: any) {
   return (
     <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 relative ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>

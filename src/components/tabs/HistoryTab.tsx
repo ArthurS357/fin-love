@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -10,8 +10,8 @@ import {
   PiggyBank,
   Search,
   Filter,
-  MoreVertical,
-  Edit2
+  Edit2,
+  DownloadCloud
 } from 'lucide-react';
 
 interface HistoryTabProps {
@@ -49,50 +49,84 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
     }
   };
 
+  // Função para Exportar CSV
+  const handleExportCSV = () => {
+    const headers = ['Data', 'Descrição', 'Categoria', 'Tipo', 'Valor'];
+    const rows = filteredTransactions.map(t => [
+      format(t.date, 'yyyy-MM-dd HH:mm'),
+      `"${t.description.replace(/"/g, '""')}"`, // Escapar aspas duplas
+      t.category,
+      t.type,
+      t.amount.toFixed(2)
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `extrato_finlove_${format(new Date(), 'yyyyMMdd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24 md:pb-0">
 
       {/* Header e Filtros */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg">
+      <div className="flex flex-col xl:flex-row gap-4 justify-between items-center bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg">
 
-        {/* Barra de Busca */}
-        <div className="relative w-full md:w-auto flex-1 max-w-md">
-          <Search className="absolute left-3 top-3 text-gray-500" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar no extrato..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-[#130b20] text-gray-200 pl-10 pr-4 py-2.5 rounded-xl border border-white/10 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition text-sm"
-          />
+        {/* Busca e Filtros (Container Flexível) */}
+        <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto flex-1">
+          {/* Barra de Busca */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-3 text-gray-500" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar no extrato..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-[#130b20] text-gray-200 pl-10 pr-4 py-2.5 rounded-xl border border-white/10 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition text-sm"
+            />
+          </div>
+
+          {/* Filtros de Tipo */}
+          <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 no-scrollbar">
+            <FilterButton
+              active={filterType === 'ALL'}
+              onClick={() => setFilterType('ALL')}
+              label="Tudo"
+            />
+            <FilterButton
+              active={filterType === 'INCOME'}
+              onClick={() => setFilterType('INCOME')}
+              label="Entradas"
+              color="text-green-400"
+            />
+            <FilterButton
+              active={filterType === 'EXPENSE'}
+              onClick={() => setFilterType('EXPENSE')}
+              label="Saídas"
+              color="text-red-400"
+            />
+            <FilterButton
+              active={filterType === 'INVESTMENT'}
+              onClick={() => setFilterType('INVESTMENT')}
+              label="Guardado"
+              color="text-blue-400"
+            />
+          </div>
         </div>
 
-        {/* Filtros de Tipo */}
-        <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-          <FilterButton
-            active={filterType === 'ALL'}
-            onClick={() => setFilterType('ALL')}
-            label="Tudo"
-          />
-          <FilterButton
-            active={filterType === 'INCOME'}
-            onClick={() => setFilterType('INCOME')}
-            label="Entradas"
-            color="text-green-400"
-          />
-          <FilterButton
-            active={filterType === 'EXPENSE'}
-            onClick={() => setFilterType('EXPENSE')}
-            label="Saídas"
-            color="text-red-400"
-          />
-          <FilterButton
-            active={filterType === 'INVESTMENT'}
-            onClick={() => setFilterType('INVESTMENT')}
-            label="Guardado"
-            color="text-blue-400"
-          />
-        </div>
+        {/* Botão Exportar CSV */}
+        <button
+          onClick={handleExportCSV}
+          className="w-full xl:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition text-gray-300 hover:text-white group"
+        >
+          <DownloadCloud size={18} className="group-hover:text-purple-400 transition-colors" />
+          <span>Exportar CSV</span>
+        </button>
       </div>
 
       {/* Lista de Transações */}
@@ -129,9 +163,8 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
                     R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </span>
 
-                  {/* Menu de Ações (Desktop: Visível / Mobile: Adaptável) */}
+                  {/* Menu de Ações */}
                   <div className="flex items-center gap-1">
-                    {/* Não permitimos editar Investimentos pela lista comum para evitar erros de tipo */}
                     {t.type !== 'INVESTMENT' && (
                       <button
                         onClick={() => onEdit(t)}

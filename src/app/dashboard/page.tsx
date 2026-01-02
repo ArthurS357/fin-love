@@ -27,13 +27,14 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // 1. Buscar dados do usuário e do parceiro
+  // 1. Buscar dados do usuário (Incluindo savingsGoal)
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       name: true,
-      email: true, // <--- ADICIONADO: Necessário para a aba Perfil
+      email: true,
       spendingLimit: true,
+      savingsGoal: true, // <--- CAMPO IMPORTANTE ADICIONADO
       partnerId: true,
       partner: {
         select: {
@@ -45,7 +46,7 @@ export default async function DashboardPage() {
     }
   });
 
-  // 2. Definir IDs para buscar transações (Se tiver parceiro, busca dos dois)
+  // 2. Definir IDs para buscar transações
   const userIds = [userId];
   if (user?.partnerId) {
     userIds.push(user.partnerId);
@@ -59,14 +60,14 @@ export default async function DashboardPage() {
     orderBy: { date: 'desc' },
   });
 
-  // Serialização dos dados (Date -> String para passar pro Client Component)
+  // Serialização dos dados
   const serializedTransactions = transactions.map(t => ({
     ...t,
     amount: t.amount,
     date: t.date.toISOString(),
   }));
 
-  // 4. Calcular o total da "Caixinha" (Investimentos)
+  // 4. Calcular o total da "Caixinha"
   const totalSavings = transactions
     .filter(t => t.type === 'INVESTMENT')
     .reduce((acc, t) => acc + t.amount, 0);
@@ -75,10 +76,11 @@ export default async function DashboardPage() {
     <Dashboard
       initialTransactions={serializedTransactions}
       userName={user?.name?.split(' ')[0] || 'Visitante'}
-      userEmail={user?.email || ''} // <--- ADICIONADO: Passando o email
+      userEmail={user?.email || ''}
       partner={user?.partner}
       spendingLimit={user?.spendingLimit || 0}
       totalSavings={totalSavings}
+      savingsGoalName={user?.savingsGoal || "Caixinha dos Sonhos"} // <--- PROP ADICIONADA
     />
   );
 }

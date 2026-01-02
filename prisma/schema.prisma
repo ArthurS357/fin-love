@@ -15,14 +15,13 @@ model User {
   spendingLimit Float?   @default(0)
   savingsGoal   String?  @default("Caixinha dos Sonhos")
 
-  // Relacionamentos
   partnerId     String?  @unique
   partner       User?    @relation("Couple", fields: [partnerId], references: [id])
   partnerOf     User?    @relation("Couple")
 
   transactions          Transaction[]
-  categories            Category[]
-  recurringTransactions RecurringTransaction[] // Nova relação
+  categories            Category[]              // Relacionamento com Categorias
+  recurringTransactions RecurringTransaction[]  // Relacionamento com Recorrência (Assinaturas)
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -46,7 +45,7 @@ model RecurringTransaction {
   id          String   @id @default(cuid())
   description String
   amount      Float
-  type        String   // 'INCOME', 'EXPENSE'
+  type        String   
   category    String
   
   frequency   String   @default("MONTHLY")

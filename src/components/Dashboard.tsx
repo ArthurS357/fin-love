@@ -108,10 +108,10 @@ export default function Dashboard({
 
       {/* Header Desktop & Mobile Otimizado */}
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/80 border-b border-white/5 supports-[backdrop-filter]:bg-[#130b20]/60">
-        <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between relative">
 
           {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform" onClick={() => setActiveTab('home')}>
+          <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform z-50" onClick={() => setActiveTab('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
               <Heart size={28} className="text-pink-500 fill-pink-500/20 group-hover:scale-110 transition-transform duration-300" />
@@ -119,8 +119,8 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Nav Central Desktop */}
-          <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1">
+          {/* Nav Central Desktop - Centralizada Absolutamente */}
+          <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
@@ -128,15 +128,17 @@ export default function Dashboard({
             <TabButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} label="Perfil" icon={<UserIcon size={18} />} />
           </nav>
 
-          {/* User Area */}
-          <div className="flex items-center gap-4">
+          {/* User Area (Direita) */}
+          <div className="flex items-center gap-4 z-50 relative">
             
+            {/* Botão IA (Desktop) - SUPER COMPACTO: Só Ícone + IA */}
             <button
               onClick={() => setIsAIModalOpen(true)}
-              className="hidden md:flex items-center gap-2 bg-gradient-to-r from-purple-700 to-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:brightness-110 transition shadow-[0_0_15px_rgba(124,58,237,0.3)] hover:scale-105 active:scale-95"
+              className="hidden md:flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
+              title="Consultor IA"
             >
-              <Sparkles size={16} />
-              <span>IA Advisor</span>
+              <Sparkles size={14} />
+              <span>IA</span>
             </button>
 
             <div className="hidden md:flex items-center gap-3 mr-2 pl-4 border-l border-white/10">

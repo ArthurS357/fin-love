@@ -24,7 +24,7 @@ async function getUserId() {
   }
 }
 
-// 1. Registro de Usuário
+// 1. Registro
 export async function registerUser(prevState: any, formData: FormData) {
   const name = formData.get('name') as string
   const email = formData.get('email') as string
@@ -34,18 +34,14 @@ export async function registerUser(prevState: any, formData: FormData) {
 
   try {
     const existingUser = await prisma.user.findUnique({ where: { email } })
-    if (existingUser) return { error: 'Este email já está em uso.' }
+    if (existingUser) return { error: 'Email já em uso.' }
 
     const hashedPassword = await bcrypt.hash(password, 10)
     const user = await prisma.user.create({
       data: { name, email, password: hashedPassword, spendingLimit: 2000 },
     })
 
-    const token = await new SignJWT({ sub: user.id })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('7d')
-      .sign(JWT_SECRET)
-
+    const token = await new SignJWT({ sub: user.id }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(JWT_SECRET)
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
@@ -55,23 +51,16 @@ export async function registerUser(prevState: any, formData: FormData) {
   }
 }
 
-// 2. Login de Usuário
+// 2. Login
 export async function loginUser(prevState: any, formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
   try {
     const user = await prisma.user.findUnique({ where: { email } })
-    if (!user) return { error: 'Credenciais inválidas.' }
+    if (!user || !(await bcrypt.compare(password, user.password))) return { error: 'Credenciais inválidas.' }
 
-    const isValid = await bcrypt.compare(password, user.password)
-    if (!isValid) return { error: 'Credenciais inválidas.' }
-
-    const token = await new SignJWT({ sub: user.id })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('7d')
-      .sign(JWT_SECRET)
-
+    const token = await new SignJWT({ sub: user.id }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(JWT_SECRET)
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
@@ -96,7 +85,7 @@ export async function addTransaction(formData: FormData) {
   const type = formData.get('type') as string
   const amount = parseFloat(formData.get('amount') as string)
   const description = formData.get('description') as string
-  const category = formData.get('category') as string || (type === 'INCOME' ? 'Receita' : 'Outros')
+  const category = formData.get('category') as string || 'Outros'
   const isRecurring = formData.get('isRecurring') === 'on'
 
   if (isNaN(amount)) return { error: 'Valor inválido' }
@@ -104,12 +93,10 @@ export async function addTransaction(formData: FormData) {
   const date = new Date()
 
   try {
-    // 1. Cria a transação de hoje
     await prisma.transaction.create({
       data: { userId, type, amount, description, category, date },
     })
 
-    // 2. Se for recorrente, cria o agendamento para o próximo mês
     if (isRecurring) {
       await prisma.recurringTransaction.create({
         data: {
@@ -118,7 +105,7 @@ export async function addTransaction(formData: FormData) {
           amount,
           description,
           category,
-          nextRun: addMonths(date, 1) // Próxima em 1 mês
+          nextRun: addMonths(date, 1)
         }
       })
     }
@@ -133,7 +120,7 @@ export async function addTransaction(formData: FormData) {
 // 5. Atualizar Transação
 export async function updateTransaction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
+  if (!userId) return { error: 'Auth error' }
 
   const id = formData.get('id') as string
   const type = formData.get('type') as string
@@ -153,253 +140,168 @@ export async function updateTransaction(formData: FormData) {
 // 6. Deletar Transação
 export async function deleteTransaction(id: string) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
-
+  if (!userId) return { error: 'Auth error' }
   await prisma.transaction.delete({ where: { id } })
   revalidatePath('/dashboard')
   return { success: true }
 }
 
-// 7. Conectar Parceiro
+// 7. Link Partner (CORRIGIDO)
 export async function linkPartnerAction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado.' }
-
-  const partnerEmail = formData.get('email') as string
-  if (!partnerEmail) return { error: 'Insira o email do parceiro.' }
+  if (!userId) return { error: 'Auth error' }
+  const email = formData.get('email') as string
 
   try {
-    const currentUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, partnerId: true }
-    })
+    const me = await prisma.user.findUnique({ where: { id: userId } })
+    if (!me) return { error: 'Usuário não encontrado.' } // <--- Correção aqui
 
-    if (!currentUser || currentUser.partnerId || currentUser.email === partnerEmail) {
-      return { error: 'Operação inválida.' }
-    }
-
-    const partnerUser = await prisma.user.findUnique({ where: { email: partnerEmail } })
-    if (!partnerUser || partnerUser.partnerId) return { error: 'Parceiro indisponível.' }
+    const partner = await prisma.user.findUnique({ where: { email } })
+    
+    // Agora 'me' é seguro de usar
+    if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Inválido.' }
 
     await prisma.$transaction([
-      prisma.user.update({ where: { id: currentUser.id }, data: { partnerId: partnerUser.id } }),
-      prisma.user.update({ where: { id: partnerUser.id }, data: { partnerId: currentUser.id } })
+      prisma.user.update({ where: { id: me.id }, data: { partnerId: partner.id } }),
+      prisma.user.update({ where: { id: partner.id }, data: { partnerId: me.id } })
     ])
-
     revalidatePath('/dashboard')
-    return { success: true, message: `Conectado com ${partnerUser.name}!` }
-  } catch {
-    return { error: 'Erro ao conectar.' }
-  }
+    return { success: true, message: 'Conectado!' }
+  } catch { return { error: 'Erro ao conectar.' } }
 }
 
-// 8. Desconectar Parceiro
+// 8. Unlink Partner (CORRIGIDO)
 export async function unlinkPartnerAction() {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado.' }
-
+  if (!userId) return { error: 'Auth error' }
   try {
-    const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } })
-    if (!currentUser?.partnerId) return { error: 'Sem conexão ativa.' }
+    const me = await prisma.user.findUnique({ where: { id: userId } })
+    if (!me || !me.partnerId) return { error: 'Sem conexão ativa.' } // <--- Correção aqui
 
     await prisma.$transaction([
       prisma.user.update({ where: { id: userId }, data: { partnerId: null } }),
-      prisma.user.update({ where: { id: currentUser.partnerId }, data: { partnerId: null } })
+      prisma.user.update({ where: { id: me.partnerId }, data: { partnerId: null } })
     ])
-
     revalidatePath('/dashboard')
     return { success: true, message: 'Desconectado.' }
-  } catch {
-    return { error: 'Erro ao desconectar.' }
-  }
+  } catch { return { error: 'Erro.' } }
 }
 
-// 9. Atualizar Meta de Gastos
+// 9. Update Limit
 export async function updateSpendingLimitAction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
-
+  if (!userId) return { error: 'Auth error' }
   const limit = parseFloat(formData.get('limit') as string)
-  if (isNaN(limit) || limit < 0) return { error: 'Valor inválido' }
-
-  try {
-    await prisma.user.update({ where: { id: userId }, data: { spendingLimit: limit } })
-    revalidatePath('/dashboard')
-    return { success: true, message: 'Meta atualizada!' }
-  } catch {
-    return { error: 'Erro ao atualizar meta.' }
-  }
+  await prisma.user.update({ where: { id: userId }, data: { spendingLimit: limit } })
+  revalidatePath('/dashboard')
+  return { success: true }
 }
 
-// 10. Adicionar à Caixinha
+// 10. Add Savings
 export async function addSavingsAction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
-
+  if (!userId) return { error: 'Auth error' }
   const amount = parseFloat(formData.get('amount') as string)
-  const description = formData.get('description') as string || 'Investimento na Caixinha'
-
-  if (isNaN(amount) || amount <= 0) return { error: 'Valor inválido' }
-
-  try {
-    await prisma.transaction.create({
-      data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
-    })
-    revalidatePath('/dashboard')
-    return { success: true, message: 'Valor guardado!' }
-  } catch {
-    return { error: 'Erro ao guardar valor.' }
-  }
+  const description = formData.get('description') as string || 'Caixinha'
+  
+  await prisma.transaction.create({
+    data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
+  })
+  revalidatePath('/dashboard')
+  return { success: true }
 }
 
-// 11. Atualizar Nome da Caixinha
+// 11. Update Goal Name (CORRIGIDO)
 export async function updateSavingsGoalNameAction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
-
+  if (!userId) return { error: 'Auth error' }
   const name = formData.get('name') as string
-  if (!name) return { error: 'Nome inválido' }
-
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } })
-    
-    await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
-    if (user?.partnerId) {
-      await prisma.user.update({ where: { id: user.partnerId }, data: { savingsGoal: name } })
-    }
-
-    revalidatePath('/dashboard')
-    return { success: true, message: 'Nome atualizado!' }
-  } catch {
-    return { error: 'Erro ao atualizar nome.' }
+  
+  const me = await prisma.user.findUnique({ where: { id: userId } })
+  if (!me) return { error: 'Usuário não encontrado' } // <--- Correção aqui
+  
+  await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
+  
+  // Agora é seguro acessar me.partnerId
+  if (me.partnerId) {
+    await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
   }
+  
+  revalidatePath('/dashboard')
+  return { success: true }
 }
 
-// 12. Atualizar Senha
+// 12. Update Password
 export async function updatePasswordAction(formData: FormData) {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
-
+  if (!userId) return { error: 'Auth error' }
   const current = formData.get('currentPassword') as string
   const newPass = formData.get('newPassword') as string
-  if (!current || !newPass) return { error: 'Preencha os campos.' }
 
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    if (!user || !(await bcrypt.compare(current, user.password))) return { error: 'Senha atual incorreta.' }
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !(await bcrypt.compare(current, user.password))) return { error: 'Senha incorreta.' }
 
-    const hashed = await bcrypt.hash(newPass, 10)
-    await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
-
-    return { success: true, message: 'Senha alterada!' }
-  } catch {
-    return { error: 'Erro ao alterar senha.' }
-  }
+  const hashed = await bcrypt.hash(newPass, 10)
+  await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
+  return { success: true, message: 'Senha atualizada!' }
 }
 
-// 13. Categorias: Listar
-export async function getCategoriesAction() {
-  const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado', data: [] };
-
-  try {
-    const categories = await prisma.category.findMany({
-      where: { userId },
-      orderBy: { name: 'asc' }
-    });
-    return { success: true, data: categories };
-  } catch (error) {
-    return { error: 'Erro ao buscar categorias', data: [] };
-  }
-}
-
-// 14. Categorias: Criar
-export async function createCategoryAction(formData: FormData) {
-  const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado' };
-
-  const name = formData.get('name') as string;
-  const color = formData.get('color') as string;
-  const icon = formData.get('icon') as string || 'Tag';
-
-  if (!name || !color) return { error: 'Preencha nome e cor.' };
-
-  try {
-    await prisma.category.create({
-      data: { userId, name, color, icon }
-    });
-    revalidatePath('/dashboard');
-    return { success: true, message: 'Categoria criada!' };
-  } catch (error) {
-    return { error: 'Erro ao criar categoria.' };
-  }
-}
-
-// 15. Categorias: Deletar
-export async function deleteCategoryAction(id: string) {
-  const userId = await getUserId();
-  if (!userId) return { error: 'Usuário não autenticado' };
-
-  try {
-    await prisma.category.delete({
-      where: { id, userId }
-    });
-    revalidatePath('/dashboard');
-    return { success: true, message: 'Categoria removida.' };
-  } catch (error) {
-    return { error: 'Erro ao remover categoria.' };
-  }
-}
-
-// 16. IA: Gerar Conselho
+// 13. IA Advice
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
-  if (!userId) return { error: 'Usuário não autenticado' }
+  if (!userId) return { error: 'Auth error' }
 
   try {
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { partner: { select: { name: true } } }
-    })
-
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { partner: true } })
     const transactions = await prisma.transaction.findMany({
-      where: {
-        userId: { in: [userId, user?.partnerId || ''].filter(Boolean) },
-        date: { gte: thirtyDaysAgo }
-      },
-      orderBy: { date: 'desc' },
-      take: 50
+      where: { userId: { in: [userId, user?.partnerId || ''].filter(Boolean) }, date: { gte: thirtyDaysAgo } },
+      orderBy: { date: 'desc' }, take: 50
     })
 
-    if (transactions.length === 0) return { success: false, error: 'Poucos dados para análise.' }
+    if (transactions.length === 0) return { success: false, error: 'Sem dados suficientes.' }
 
-    const txSummary = transactions.map(t => 
-      `- ${t.date.toLocaleDateString()}: ${t.description} (${t.category}) | R$ ${t.amount} [${t.type}]`
-    ).join('\n')
-
-    const prompt = `
-      Atue como um consultor financeiro para um casal/pessoa.
-      Analise estas transações (30 dias):
-      ${txSummary}
-      Meta: R$ ${user?.spendingLimit || 'N/A'}.
-      Responda em Markdown curto:
-      1. 🧐 **Onde foi o dinheiro?**
-      2. ⚠️ **Atenção**
-      3. 💡 **Dica de Ouro**
-      Tom: Amigável e motivador.
-    `
+    const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${t.amount} [${t.type}]`).join('\n')
+    const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${user?.spendingLimit}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável.`
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
     const result = await model.generateContent(prompt)
-    
     return { success: true, message: result.response.text() }
-  } catch (error) {
-    return { error: 'Erro na IA. Tente mais tarde.' }
-  }
+  } catch { return { error: 'IA indisponível.' } }
+}
+
+// 14. Categorias: Listar
+export async function getCategoriesAction() {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error', data: [] };
+  const categories = await prisma.category.findMany({ where: { userId }, orderBy: { name: 'asc' } });
+  return { success: true, data: categories };
+}
+
+// 15. Categorias: Criar
+export async function createCategoryAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const name = formData.get('name') as string;
+  const color = formData.get('color') as string;
+  const icon = formData.get('icon') as string;
+
+  try {
+    await prisma.category.create({ data: { userId, name, color, icon } });
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch { return { error: 'Erro ao criar categoria.' }; }
+}
+
+// 16. Categorias: Deletar
+export async function deleteCategoryAction(id: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+  await prisma.category.delete({ where: { id, userId } });
+  revalidatePath('/dashboard');
+  return { success: true };
 }
 
 // 17. Processar Recorrência (Automático)
@@ -409,14 +311,8 @@ export async function checkRecurringTransactionsAction() {
 
   try {
     const pending = await prisma.recurringTransaction.findMany({
-      where: {
-        userId,
-        active: true,
-        nextRun: { lte: new Date() }
-      }
+      where: { userId, active: true, nextRun: { lte: new Date() } }
     });
-
-    if (pending.length === 0) return;
 
     for (const rec of pending) {
       let runDate = new Date(rec.nextRun);
@@ -428,23 +324,15 @@ export async function checkRecurringTransactionsAction() {
             userId,
             type: rec.type,
             amount: rec.amount,
-            description: `${rec.description} (Automático)`,
+            description: `${rec.description} (Auto)`,
             category: rec.category,
             date: runDate
           }
         });
         runDate = addMonths(runDate, 1);
       }
-
-      await prisma.recurringTransaction.update({
-        where: { id: rec.id },
-        data: { nextRun: runDate }
-      });
+      await prisma.recurringTransaction.update({ where: { id: rec.id }, data: { nextRun: runDate } });
     }
-    
-    revalidatePath('/dashboard');
-    return { success: true, count: pending.length };
-  } catch (error) {
-    console.error("Erro ao processar recorrentes:", error);
-  }
+    if (pending.length > 0) revalidatePath('/dashboard');
+  } catch (err) { console.error(err) }
 }

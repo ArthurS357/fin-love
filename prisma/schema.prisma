@@ -1,7 +1,9 @@
+// Configuração do Cliente Prisma
 generator client {
   provider = "prisma-client-js"
 }
 
+// Configuração do Banco de Dados (Vercel Postgres)
 datasource db {
   provider  = "postgresql"
   url       = env("POSTGRES_PRISMA_URL") // Usa o Pool para performance
@@ -30,9 +32,10 @@ model User {
   categories    Category[]
   
   // Lógica de Casal (Parceiro)
+  // Relação reflexiva: Um usuário pode ter um parceiro
   partnerId     String?
   partner       User?     @relation("PartnerLink", fields: [partnerId], references: [id])
-  partners      User[]    @relation("PartnerLink") // Hack do Prisma para relação reflexiva
+  partners      User[]    @relation("PartnerLink") 
 
   sentRequests     PartnerRequest[] @relation("Sender")
   receivedRequests PartnerRequest[] @relation("Receiver")
@@ -65,8 +68,10 @@ model Transaction {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Índice para deixar o Dashboard rápido
+  // OTIMIZAÇÃO DE PERFORMANCE:
+  // Índices para deixar o Dashboard e o cálculo de saldo rápidos
   @@index([userId, date])
+  @@index([userId, type]) 
 }
 
 // --- MODELO DE TRANSAÇÃO RECORRENTE (Assinaturas) ---
@@ -107,7 +112,7 @@ model Badge {
 model Category {
   id      String @id @default(uuid())
   name    String
-  type    String // INCOME ou EXPENSE
+  type    String? // INCOME ou EXPENSE (Opcional pois pode ter sido criado antes)
   icon    String?
   color   String? // Cor da categoria (Hex ou nome)
   

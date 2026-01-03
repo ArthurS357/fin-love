@@ -69,7 +69,7 @@ CREATE TABLE "Badge" (
 CREATE TABLE "Category" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "type" TEXT NOT NULL,
+    "type" TEXT,
     "icon" TEXT,
     "color" TEXT,
     "userId" TEXT NOT NULL,
@@ -93,6 +93,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date");
+
+-- CreateIndex
+CREATE INDEX "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

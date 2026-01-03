@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma';
 import { jwtVerify } from 'jose';
 import Dashboard from '@/components/Dashboard';
 import { 
-  checkRecurringTransactionsAction, 
   getFinancialSummaryAction 
 } from '@/app/actions';
 
@@ -39,21 +38,19 @@ export default async function DashboardPage() {
     }
   });
 
-  // Define quais IDs vamos consultar
+  // Define quais IDs vamos consultar (Usuário + Parceiro se houver)
   const targetUserIds = [userId];
   if (user?.partnerId) {
     targetUserIds.push(user.partnerId);
   }
 
-  // ETAPA 2: Buscar o restante em paralelo
+  // ETAPA 2: Buscar o restante em paralelo (AGORA OTIMIZADO)
+  // Removemos o checkRecurringTransactionsAction pois o Cron Job cuida disso
   const [
-    _, // Resultado da recorrência
     financialSummary,
     rawTransactions,
     savingsAgg
   ] = await Promise.all([
-    checkRecurringTransactionsAction(),
-    
     getFinancialSummaryAction(),
 
     prisma.transaction.findMany({
@@ -78,7 +75,7 @@ export default async function DashboardPage() {
     ...t,
     amount: Number(t.amount),
     date: t.date.toISOString(),
-    // AQUI ESTÁ A CORREÇÃO: Forçamos o tipo para o que o Dashboard espera
+    // Forçamos o tipo para o que o Dashboard espera
     type: t.type as 'INCOME' | 'EXPENSE' | 'INVESTMENT',
   }));
 

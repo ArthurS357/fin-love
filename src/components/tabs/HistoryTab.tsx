@@ -11,8 +11,14 @@ import {
   Search,
   Filter,
   Edit2,
-  DownloadCloud
+  DownloadCloud,
+  CheckCircle2,
+  Circle,
+  CreditCard,
+  Wallet
 } from 'lucide-react';
+import { toggleTransactionStatus } from '@/app/actions'; // Importe a action
+import { toast } from 'sonner';
 
 interface HistoryTabProps {
   transactions: any[];
@@ -23,6 +29,7 @@ interface HistoryTabProps {
 export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'INVESTMENT'>('ALL');
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   // Filtragem local
   const filteredTransactions = useMemo(() => {
@@ -35,7 +42,21 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
     });
   }, [transactions, searchTerm, filterType]);
 
-  // Função para renderizar ícone e cor baseado no tipo
+  // Função para marcar como Pago/Não Pago
+  const handleToggleStatus = async (id: string, currentStatus: boolean, e: React.MouseEvent) => {
+    e.stopPropagation(); // Evita abrir o modal de edição se clicar no check
+    setLoadingId(id);
+    try {
+      await toggleTransactionStatus(id, currentStatus);
+      toast.success(currentStatus ? 'Marcado como pendente' : 'Marcado como pago');
+    } catch (error) {
+      toast.error('Erro ao atualizar status');
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  // Estilos baseados no tipo
   const getTypeStyles = (type: string) => {
     switch (type) {
       case 'INCOME':
@@ -49,15 +70,17 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
     }
   };
 
-  // Função para Exportar CSV
+  // Exportar CSV
   const handleExportCSV = () => {
-    const headers = ['Data', 'Descrição', 'Categoria', 'Tipo', 'Valor'];
+    const headers = ['Data', 'Descrição', 'Categoria', 'Tipo', 'Valor', 'Status', 'Método'];
     const rows = filteredTransactions.map(t => [
       format(t.date, 'yyyy-MM-dd HH:mm'),
-      `"${t.description.replace(/"/g, '""')}"`, // Escapar aspas duplas
+      `"${t.description.replace(/"/g, '""')}"`,
       t.category,
       t.type,
-      t.amount.toFixed(2)
+      Number(t.amount).toFixed(2),
+      t.isPaid ? 'Pago' : 'Pendente',
+      t.paymentMethod || 'DEBIT'
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -76,10 +99,9 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
 
       {/* Header e Filtros */}
       <div className="flex flex-col xl:flex-row gap-4 justify-between items-center bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg">
-
-        {/* Busca e Filtros (Container Flexível) */}
+        
+        {/* Busca e Filtros */}
         <div className="flex flex-col md:flex-row gap-3 w-full xl:w-auto flex-1">
-          {/* Barra de Busca */}
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-3 text-gray-500" size={18} />
             <input
@@ -91,35 +113,14 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
             />
           </div>
 
-          {/* Filtros de Tipo */}
           <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-            <FilterButton
-              active={filterType === 'ALL'}
-              onClick={() => setFilterType('ALL')}
-              label="Tudo"
-            />
-            <FilterButton
-              active={filterType === 'INCOME'}
-              onClick={() => setFilterType('INCOME')}
-              label="Entradas"
-              color="text-green-400"
-            />
-            <FilterButton
-              active={filterType === 'EXPENSE'}
-              onClick={() => setFilterType('EXPENSE')}
-              label="Saídas"
-              color="text-red-400"
-            />
-            <FilterButton
-              active={filterType === 'INVESTMENT'}
-              onClick={() => setFilterType('INVESTMENT')}
-              label="Guardado"
-              color="text-blue-400"
-            />
+            <FilterButton active={filterType === 'ALL'} onClick={() => setFilterType('ALL')} label="Tudo" />
+            <FilterButton active={filterType === 'INCOME'} onClick={() => setFilterType('INCOME')} label="Entradas" color="text-green-400" />
+            <FilterButton active={filterType === 'EXPENSE'} onClick={() => setFilterType('EXPENSE')} label="Saídas" color="text-red-400" />
+            <FilterButton active={filterType === 'INVESTMENT'} onClick={() => setFilterType('INVESTMENT')} label="Guardado" color="text-blue-400" />
           </div>
         </div>
 
-        {/* Botão Exportar CSV */}
         <button
           onClick={handleExportCSV}
           className="w-full xl:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition text-gray-300 hover:text-white group"
@@ -134,51 +135,86 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
         {filteredTransactions.length > 0 ? (
           filteredTransactions.map((t) => {
             const style = getTypeStyles(t.type);
+            const isCredit = t.paymentMethod === 'CREDIT';
+            const isInstallment = t.installments && t.installments > 1;
+
             return (
               <div
                 key={t.id}
-                className="group flex items-center justify-between p-4 bg-[#1f1630]/60 backdrop-blur-sm hover:bg-[#1f1630] border border-white/5 rounded-2xl transition-all duration-300 hover:border-purple-500/30 hover:shadow-lg hover:shadow-purple-900/10"
+                className={`group flex items-center justify-between p-4 bg-[#1f1630]/60 backdrop-blur-sm hover:bg-[#1f1630] border rounded-2xl transition-all duration-300 hover:shadow-lg ${
+                  !t.isPaid ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/5'
+                }`}
               >
                 {/* Esquerda: Ícone e Detalhes */}
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-full ${style.bg} ${style.color} shadow-sm`}>
-                    {style.icon}
-                  </div>
+                  {/* Ícone de Tipo ou Botão de Status */}
+                  {t.type === 'EXPENSE' ? (
+                     <button 
+                       onClick={(e) => handleToggleStatus(t.id, t.isPaid, e)}
+                       disabled={loadingId === t.id}
+                       className={`p-3 rounded-full transition-all ${t.isPaid ? style.bg + ' ' + style.color : 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20'}`}
+                       title={t.isPaid ? "Pago" : "Pendente (Clique para pagar)"}
+                     >
+                        {loadingId === t.id ? (
+                           <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : t.isPaid ? (
+                           <CheckCircle2 size={24} />
+                        ) : (
+                           <Circle size={24} />
+                        )}
+                     </button>
+                  ) : (
+                    <div className={`p-3 rounded-full ${style.bg} ${style.color}`}>
+                      {style.icon}
+                    </div>
+                  )}
+
                   <div>
-                    <p className="font-bold text-white text-sm md:text-base">{t.description}</p>
-                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                      <span className="capitalize bg-white/5 px-2 py-0.5 rounded-md border border-white/5">
-                        {t.category}
+                    <div className="flex items-center gap-2">
+                      <p className={`font-bold text-sm md:text-base ${!t.isPaid ? 'text-yellow-100' : 'text-white'}`}>
+                        {t.description}
+                      </p>
+                      {/* Badge de Parcela */}
+                      {isInstallment && (
+                        <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30">
+                          {t.currentInstallment}/{t.installments}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                      {/* Ícone Método Pagamento */}
+                      <span className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5" title={isCredit ? "Cartão de Crédito" : "Débito/Dinheiro"}>
+                         {isCredit ? <CreditCard size={10} /> : <Wallet size={10} />}
+                         <span className="capitalize">{t.category}</span>
                       </span>
                       <span>•</span>
-                      <span>{format(t.date, "d 'de' MMM, HH:mm", { locale: ptBR })}</span>
+                      <span>{format(t.date, "d 'de' MMM", { locale: ptBR })}</span>
+                      {!t.isPaid && <span className="text-yellow-500 font-bold">• Pendente</span>}
                     </div>
                   </div>
                 </div>
 
                 {/* Direita: Valor e Ações */}
-                <div className="flex items-center gap-4 md:gap-6">
+                <div className="flex items-center gap-3 md:gap-6">
                   <span className={`font-bold text-sm md:text-base whitespace-nowrap ${style.color}`}>
                     {t.type === 'EXPENSE' ? '- ' : '+ '}
-                    R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </span>
 
-                  {/* Menu de Ações */}
+                  {/* Botões Desktop */}
                   <div className="flex items-center gap-1">
                     {t.type !== 'INVESTMENT' && (
                       <button
                         onClick={() => onEdit(t)}
                         className="p-2 text-gray-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition"
-                        title="Editar"
                       >
                         <Edit2 size={16} />
                       </button>
                     )}
-
                     <button
                       onClick={() => onDelete(t.id)}
                       className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                      title="Excluir"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -191,7 +227,6 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
           <div className="flex flex-col items-center justify-center py-20 text-gray-500 bg-[#1f1630]/30 rounded-2xl border border-white/5 border-dashed">
             <Filter size={48} className="mb-4 opacity-20" />
             <p>Nenhum lançamento encontrado.</p>
-            {searchTerm && <p className="text-xs mt-2">Tente buscar por outro termo.</p>}
           </div>
         )}
       </div>
@@ -199,7 +234,6 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
   );
 }
 
-// Botão de Filtro Auxiliar
 function FilterButton({ active, onClick, label, color = "text-gray-300" }: any) {
   return (
     <button

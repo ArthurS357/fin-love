@@ -3,7 +3,10 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { jwtVerify } from 'jose';
 import Dashboard from '@/components/Dashboard';
-import { checkRecurringTransactionsAction } from '@/app/actions';
+import { 
+  checkRecurringTransactionsAction, 
+  getFinancialSummaryAction 
+} from '@/app/actions';
 
 const secretStr = process.env.JWT_SECRET;
 if (!secretStr) throw new Error('CONFIG ERROR: JWT_SECRET ausente.');
@@ -23,52 +26,64 @@ export default async function DashboardPage() {
   const userId = await getUserFromToken();
   if (!userId) redirect('/login');
 
-  // OTIMIZAÇÃO 1: Paralelismo (Promise.all)
-  // Executa a verificação de recorrencia e a busca do usuário ao mesmo tempo
-  // em vez de esperar um acabar para começar o outro.
-  const [_, user] = await Promise.all([
-    checkRecurringTransactionsAction(), // Roda em background (side-effect)
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        name: true, email: true, spendingLimit: true, savingsGoal: true, partnerId: true,
-        partner: { select: { id: true, name: true, email: true } }
-      }
-    })
-  ]);
+  // ETAPA 1: Buscar o usuário primeiro (Necessário para saber quem é o parceiro)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      name: true, 
+      email: true, 
+      spendingLimit: true, 
+      savingsGoal: true, 
+      partnerId: true,
+      partner: { select: { id: true, name: true, email: true } }
+    }
+  });
 
-  const userIds = [userId];
-  if (user?.partnerId) userIds.push(user.partnerId);
+  // Define quais IDs vamos consultar (Eu + Parceiro)
+  const targetUserIds = [userId];
+  if (user?.partnerId) {
+    targetUserIds.push(user.partnerId);
+  }
 
-  // OTIMIZAÇÃO 2: Agregação no Banco (Mais rápido e CORRETO)
-  // Buscamos as últimas 100 para exibir no histórico,
-  // MAS calculamos o total investido via banco de dados (soma total real).
-  const [transactions, savingsAgg] = await Promise.all([
+  // ETAPA 2: Buscar o restante em paralelo (Agora temos o targetUserIds pronto)
+  const [
+    _, // Resultado da recorrência
+    financialSummary,
+    rawTransactions,
+    savingsAgg
+  ] = await Promise.all([
+    checkRecurringTransactionsAction(),
+    
+    getFinancialSummaryAction(),
+
+    // Agora usamos targetUserIds que já foi calculado
     prisma.transaction.findMany({
-      where: { userId: { in: userIds } },
+      where: { 
+        userId: { in: targetUserIds } 
+      },
       orderBy: { date: 'desc' },
       take: 100,
     }),
+
     prisma.transaction.aggregate({
       _sum: { amount: true },
       where: { 
-        userId: { in: userIds },
+        userId: { in: targetUserIds },
         type: 'INVESTMENT'
       }
     })
   ]);
 
-  // Serialização
-  const serializedTransactions = transactions.map(t => ({
+  // Serialização dos dados
+  const serializedTransactions = rawTransactions.map(t => ({
     ...t,
-    // Se mudou para Decimal, converta aqui: amount: Number(t.amount)
-    amount: typeof t.amount === 'object' ? Number(t.amount) : t.amount,
+    amount: Number(t.amount),
     date: t.date.toISOString(),
   }));
 
-  // Pega o valor agregado do banco (ou 0 se for null)
-  // Se estiver usando Decimal, converta com Number()
   const totalSavings = Number(savingsAgg._sum.amount || 0);
+  const spendingLimit = Number(user?.spendingLimit || 0);
+  const accumulatedBalance = Number(financialSummary?.accumulatedBalance || 0);
 
   return (
     <Dashboard
@@ -76,9 +91,10 @@ export default async function DashboardPage() {
       userName={user?.name?.split(' ')[0] || 'Visitante'}
       userEmail={user?.email || ''}
       partner={user?.partner}
-      spendingLimit={Number(user?.spendingLimit || 0)}
+      spendingLimit={spendingLimit}
       totalSavings={totalSavings}
       savingsGoalName={user?.savingsGoal || "Caixinha dos Sonhos"}
+      accumulatedBalance={accumulatedBalance}
     />
   );
 }

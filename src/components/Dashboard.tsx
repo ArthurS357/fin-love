@@ -12,11 +12,8 @@ import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
-// --- OTIMIZAÇÃO 1: Code Splitting (Lazy Loading) ---
-// A aba Home carrega imediatamente, pois é a primeira a ser vista.
 import HomeTab from './tabs/HomeTab';
 
-// As outras abas só baixam o código se o usuário clicar nelas.
 const HistoryTab = dynamic(() => import('./tabs/HistoryTab'), { 
   loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando histórico...</div>
 });
@@ -30,7 +27,6 @@ const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
   loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando perfil...</div>
 });
 
-// Modais carregados sob demanda (Client-side only)
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
 
@@ -42,16 +38,18 @@ interface DashboardProps {
   spendingLimit: number;
   totalSavings: number;
   savingsGoalName: string;
+  accumulatedBalance: number; // Novo prop para saldo total
 }
 
 export default function Dashboard({ 
   initialTransactions, 
   userName, 
-  userEmail,
+  userEmail, 
   partner, 
   spendingLimit, 
-  totalSavings,
-  savingsGoalName 
+  totalSavings, 
+  savingsGoalName,
+  accumulatedBalance 
 }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -61,7 +59,6 @@ export default function Dashboard({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
 
-  // Normaliza as datas vindas do servidor (String ISO -> Date Object)
   const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -69,8 +66,6 @@ export default function Dashboard({
     }));
   }, [initialTransactions]);
 
-  // --- OTIMIZAÇÃO 2: Optimistic UI (React 19) ---
-  // 'transactions' é a versão que reage instantaneamente.
   const [transactions, deleteOptimisticTransaction] = useOptimistic(
     normalizedTransactions,
     (state, idToDelete: string) => state.filter((t) => t.id !== idToDelete)
@@ -113,12 +108,9 @@ export default function Dashboard({
   };
 
   const handleDelete = async (id: string) => {
-    // 1. Atualiza a UI imediatamente (Optimistic)
     startTransition(() => {
       deleteOptimisticTransaction(id);
     });
-
-    // 2. Chama o servidor em background
     toast.promise(deleteTransaction(id), {
       loading: 'Sincronizando...',
       success: 'Transação removida!',
@@ -132,15 +124,12 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans relative overflow-hidden selection:bg-pink-500/30">
-      {/* Background Ambience */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
-      {/* Header Desktop & Mobile */}
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/80 border-b border-white/5 supports-[backdrop-filter]:bg-[#130b20]/60">
         <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between relative">
           
-          {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform z-50" onClick={() => setActiveTab('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
@@ -149,7 +138,6 @@ export default function Dashboard({
             <span className="font-bold text-white text-xl tracking-tight">Fin<span className="text-pink-500">Love</span></span>
           </div>
 
-          {/* Nav Central (Desktop) */}
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
@@ -157,10 +145,7 @@ export default function Dashboard({
             <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
-          {/* Área Direita (Ações + Menu) */}
           <div className="flex items-center gap-3 md:gap-4 z-50 relative">
-            
-            {/* --- OTIMIZAÇÃO 3: Acessibilidade (aria-label) --- */}
             <button
               onClick={() => setPrivacyMode(!privacyMode)}
               className="p-2 text-purple-300 hover:text-white transition active:scale-95 hover:bg-white/5 rounded-full"
@@ -187,7 +172,6 @@ export default function Dashboard({
               <span>Novo</span>
             </button>
 
-            {/* Menu Dropdown */}
             <div className="relative">
               <button 
                 onClick={() => setIsMenuOpen(!isMenuOpen)} 
@@ -228,7 +212,6 @@ export default function Dashboard({
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
         
         {activeTab !== 'partner' && activeTab !== 'profile' && (
@@ -286,6 +269,7 @@ export default function Dashboard({
               income={income} 
               expense={expense} 
               balance={balance} 
+              accumulatedBalance={accumulatedBalance}
               pieData={pieData} 
               barData={barData} 
               privacyMode={privacyMode} 
@@ -309,7 +293,6 @@ export default function Dashboard({
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* Menu Mobile Flutuante */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
@@ -333,7 +316,6 @@ export default function Dashboard({
   );
 }
 
-// Subcomponentes utilitários
 function TabButton({ active, onClick, label, icon }: any) {
   return (
     <button 

@@ -8,85 +8,123 @@ datasource db {
   directUrl = env("POSTGRES_URL_NON_POOLING") // Usa direta para migrações
 }
 
+// --- MODELO DE USUÁRIO ---
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  password      String   
-  name          String?
-  spendingLimit Decimal? @default(0) @db.Decimal(10, 2)
-  savingsGoal   String?  @default("Caixinha dos Sonhos")
-  lastAdvice     String?   @db.Text // Use Text para suportar textos longos
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  
+  // Configurações Financeiras
+  spendingLimit Decimal?  @default(0) @db.Decimal(10, 2)
+  savingsGoal   String?   @default("Caixinha dos Sonhos")
+
+  // Cache de IA (Economia de custos)
+  lastAdvice     String?  @db.Text
   lastAdviceDate DateTime?
 
-  partnerId     String?  @unique
-  partner       User?    @relation("Couple", fields: [partnerId], references: [id])
-  partnerOf     User?    @relation("Couple")
-
-  transactions          Transaction[]
-  categories            Category[]              // Relacionamento com Categorias
-  recurringTransactions RecurringTransaction[]  // Relacionamento com Recorrência (Assinaturas)
+  // Relacionamentos
+  transactions  Transaction[]
+  recurring     RecurringTransaction[]
   badges        Badge[]
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-}
-
-model Category {
-  id          String   @id @default(cuid())
-  name        String
-  color       String   
-  icon        String   
+  categories    Category[]
   
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Lógica de Casal (Parceiro)
+  partnerId     String?
+  partner       User?     @relation("PartnerLink", fields: [partnerId], references: [id])
+  partners      User[]    @relation("PartnerLink") // Hack do Prisma para relação reflexiva
 
-  createdAt   DateTime @default(now())
+  sentRequests     PartnerRequest[] @relation("Sender")
+  receivedRequests PartnerRequest[] @relation("Receiver")
 
-  @@unique([userId, name])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
-model Badge {
-  id          String   @id @default(cuid())
-  code        String   // Ex: 'FIRST_INVESTMENT'
-  name        String
-  description String
-  icon        String   // Emoji ou nome do ícone
-  
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  awardedAt   DateTime @default(now())
-}
-
-model RecurringTransaction {
-  id          String   @id @default(cuid())
-  description String
-  amount      Float
-  type        String   
-  category    String
-  
-  frequency   String   @default("MONTHLY")
-  nextRun     DateTime 
-  active      Boolean  @default(true)
-
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt   DateTime @default(now())
-}
-
+// --- MODELO DE TRANSAÇÃO (Principal) ---
 model Transaction {
   id          String   @id @default(uuid())
   
-  // OTIMIZAÇÃO: Decimal para evitar erros de centavos
-  amount      Decimal  @db.Decimal(10, 2)
+  // Dados Básicos
+  amount      Decimal  @db.Decimal(10, 2) // Decimal para precisão monetária
   description String
   category    String
+  type        String   // INCOME (Entrada), EXPENSE (Saída), INVESTMENT (Investimento)
   date        DateTime @default(now())
-  type        String   
+
+  // NOVOS CAMPOS: Parcelamento e Pagamento
+  paymentMethod String?  @default("DEBIT") // "CREDIT", "DEBIT", "PIX", "CASH"
+  installments  Int?     @default(1)       // Total de parcelas (ex: 12)
+  currentInstallment Int? @default(1)      // Parcela atual (ex: 1)
+  isPaid        Boolean  @default(true)    // false = Fatura aberta (Crédito)
+
+  // Relacionamento com Usuário
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // PERFORMANCE: Índice Composto para queries "Minhas transações recentes"
-  @@index([userId, date(sort: Desc)])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Índice para deixar o Dashboard rápido
+  @@index([userId, date])
+}
+
+// --- MODELO DE TRANSAÇÃO RECORRENTE (Assinaturas) ---
+model RecurringTransaction {
+  id          String   @id @default(uuid())
+  amount      Decimal  @db.Decimal(10, 2)
+  description String
+  category    String
+  type        String
+  frequency   String   // MONTHLY (Mensal)
+  active      Boolean  @default(true)
+  nextRun     DateTime
+  
+  // NOVO CAMPO: Dia preferido para o pagamento
+  dayOfMonth  Int?     // Ex: Dia 5, Dia 10...
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --- GAMIFICAÇÃO (Medalhas) ---
+model Badge {
+  id          String   @id @default(uuid())
+  code        String   // Código único da medalha (ex: "SAVER_1")
+  name        String
+  description String
+  icon        String
+  earnedAt    DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// --- CATEGORIAS PERSONALIZADAS ---
+model Category {
+  id      String @id @default(uuid())
+  name    String
+  type    String // INCOME ou EXPENSE
+  icon    String?
+  color   String? // Cor da categoria (Hex ou nome)
+  
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// --- SOLICITAÇÕES DE PARCEIRO ---
+model PartnerRequest {
+  id         String   @id @default(uuid())
+  status     String   // PENDING, ACCEPTED, REJECTED
+  
+  senderId   String
+  sender     User     @relation("Sender", fields: [senderId], references: [id])
+  
+  receiverId String
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id])
+  
+  createdAt  DateTime @default(now())
 }

@@ -1,49 +1,58 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
-import { jwtVerify } from 'jose'
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
 const secretStr = process.env.JWT_SECRET;
-if (!secretStr) throw new Error('JWT_SECRET não definida no ambiente.');
-const JWT_SECRET = new TextEncoder().encode(secretStr);
+const JWT_SECRET = new TextEncoder().encode(secretStr || 'default_secret');
 
-export async function middleware(request: NextRequest) {
-  const token = request.cookies.get('token')?.value
-  const { pathname } = request.nextUrl
+export async function middleware(req: NextRequest) {
+  const token = req.cookies.get('token')?.value;
+  const { pathname } = req.nextUrl;
 
-  // Rotas públicas que não precisam de login
-  const publicRoutes = ['/login', '/register', '/']
+  // 1. Rotas Públicas (Não precisam de login)
+  const isPublicRoute = 
+    pathname === '/login' || 
+    pathname === '/register' || 
+    pathname === '/'; // Landing page se houver
 
-  // 1. Se for rota pública e tiver token, manda pro dashboard
-  if (publicRoutes.includes(pathname) && token) {
+  // 2. Rotas Estáticas (Imagens, PWA, Next internals) - IMPORTANTE IGNORAR
+  const isStaticAsset = 
+    pathname.startsWith('/_next') || 
+    pathname.startsWith('/static') || 
+    pathname.includes('.') || // Pega .png, .ico, .json
+    pathname.startsWith('/api'); // Opcional: Se quiser tratar API diferente
+
+  if (isStaticAsset) {
+    return NextResponse.next();
+  }
+
+  // CENÁRIO A: Usuário NÃO logado tentando acessar rota protegida
+  if (!token && !isPublicRoute) {
+    const loginUrl = new URL('/login', req.url);
+    // Opcional: Salvar a url que ele tentou ir para redirecionar depois
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // CENÁRIO B: Usuário JÁ logado tentando acessar Login/Register
+  if (token && isPublicRoute) {
     try {
-      await jwtVerify(token, JWT_SECRET)
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    } catch (e) {
-      // Token inválido, deixa passar para login
+      // Verifica se o token é válido antes de redirecionar
+      await jwtVerify(token, JWT_SECRET);
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    } catch (err) {
+      // Se o token for inválido (expirado), deixa ele ir pro login e limpa o cookie
+      const response = NextResponse.next();
+      response.cookies.delete('token');
+      return response;
     }
   }
 
-  // 2. Se for rota protegida (dashboard) e NÃO tiver token
-  if (!publicRoutes.includes(pathname) && !token) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  // 3. Se tiver token em rota protegida, verifica validade
-  if (!publicRoutes.includes(pathname) && token) {
-    try {
-      await jwtVerify(token, JWT_SECRET)
-    } catch (e) {
-      // Se o token for inválido/expirado, remove e manda pro login
-      const response = NextResponse.redirect(new URL('/login', request.url))
-      response.cookies.delete('token')
-      return response
-    }
-  }
-
-  return NextResponse.next()
+  return NextResponse.next();
 }
 
-// Configura em quais rotas o middleware roda
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
-}
+  // Matcher otimizado para excluir arquivos estáticos nativamente
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js).*)',
+  ],
+};

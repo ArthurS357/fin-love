@@ -503,12 +503,18 @@ export async function checkRecurringTransactionsAction() {
 
     const newTransactions = [];
     const updates = [];
+    const MAX_MONTHS_LOOKAHEAD = 12; // Segurança: Processa no máximo 1 ano por vez
 
     for (const rec of pending) {
       let runDate = new Date(rec.nextRun);
       const now = new Date();
+      let safetyCounter = 0;
 
-      while (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) {
+      // Loop com trava de segurança
+      while (
+        (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) && 
+        safetyCounter < MAX_MONTHS_LOOKAHEAD
+      ) {
         newTransactions.push({
           userId,
           type: rec.type,
@@ -517,7 +523,17 @@ export async function checkRecurringTransactionsAction() {
           category: rec.category,
           date: new Date(runDate)
         });
+        
+        // Avança para o próximo mês mantendo o dia original
+        // Se o dia original era 31 e o mês seguinte não tem, o date-fns ajusta, 
+        // mas idealmente usaríamos logica para manter o "dia de preferência"
         runDate = addMonths(runDate, 1);
+        if (rec.dayOfMonth) {
+            // Tenta forçar o dia escolhido se possível no mês novo
+            runDate = setDate(runDate, rec.dayOfMonth); 
+        }
+        
+        safetyCounter++;
       }
       
       updates.push(
@@ -529,6 +545,7 @@ export async function checkRecurringTransactionsAction() {
     }
 
     if (newTransactions.length > 0) {
+      // createMany é muito mais rápido que loop de create
       await prisma.transaction.createMany({
         data: newTransactions
       });
@@ -606,3 +623,4 @@ export async function getBadgesAction() {
   if (!userId) return [];
   return await prisma.badge.findMany({ where: { userId }, orderBy: { earnedAt: 'desc' } });
 }
+

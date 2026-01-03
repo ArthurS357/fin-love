@@ -12,6 +12,34 @@ import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
+// --- DEFINIÇÃO DE TIPOS (Segurança) ---
+// Você pode mover isso para src/types/index.ts no futuro se quiser organizar melhor
+export interface Transaction {
+  id: string;
+  description: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE' | 'INVESTMENT';
+  category: string;
+  date: string | Date; // Aceita string (do servidor) ou Date (após processamento)
+  paymentMethod?: string | null;
+  installments?: number | null;
+  currentInstallment?: number | null;
+  isPaid: boolean;
+  userId: string;
+}
+
+interface DashboardProps {
+  initialTransactions: Transaction[];
+  userName: string;
+  userEmail: string;
+  partner?: { name: string | null; email: string } | null;
+  spendingLimit: number;
+  totalSavings: number;
+  savingsGoalName: string;
+  accumulatedBalance: number;
+}
+
+// --- LAZY LOADING (Performance) ---
 import HomeTab from './tabs/HomeTab';
 
 const HistoryTab = dynamic(() => import('./tabs/HistoryTab'), { 
@@ -30,17 +58,6 @@ const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
 
-interface DashboardProps {
-  initialTransactions: any[];
-  userName: string;
-  userEmail: string;
-  partner?: { name: string | null; email: string } | null;
-  spendingLimit: number;
-  totalSavings: number;
-  savingsGoalName: string;
-  accumulatedBalance: number; // Novo prop para saldo total
-}
-
 export default function Dashboard({ 
   initialTransactions, 
   userName, 
@@ -50,15 +67,18 @@ export default function Dashboard({
   totalSavings, 
   savingsGoalName,
   accumulatedBalance 
-}: DashboardProps) {
+}: DashboardProps) { // <--- Props tipadas aqui
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [privacyMode, setPrivacyMode] = useState(false); 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
+  
+  // Estado tipado para a transação em edição
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
+  // Normalização de datas (String -> Date Object)
   const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -66,15 +86,18 @@ export default function Dashboard({
     }));
   }, [initialTransactions]);
 
+  // Optimistic UI (Atualização instantânea ao deletar)
   const [transactions, deleteOptimisticTransaction] = useOptimistic(
     normalizedTransactions,
     (state, idToDelete: string) => state.filter((t) => t.id !== idToDelete)
   );
 
+  // Filtros de Data (Mês Atual)
   const monthlyTransactions = useMemo(() => {
-    return transactions.filter(t => isSameMonth(t.date, currentDate));
+    return transactions.filter(t => isSameMonth(t.date as Date, currentDate));
   }, [transactions, currentDate]);
 
+  // Cálculos Financeiros
   const income = monthlyTransactions
     .filter(t => t.type === 'INCOME')
     .reduce((acc, t) => acc + Number(t.amount), 0);
@@ -100,9 +123,10 @@ export default function Dashboard({
     { name: 'Saídas', valor: expense },
   ];
 
+  // Handlers
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
 
-  const handleEdit = (t: any) => {
+  const handleEdit = (t: Transaction) => { // <--- Tipado
     setEditingTransaction(t);
     setIsModalOpen(true);
   };
@@ -124,6 +148,7 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#130b20] text-gray-100 font-sans relative overflow-hidden selection:bg-pink-500/30">
+      {/* Background Ambience */}
       <div className="fixed top-0 left-0 w-full h-[500px] bg-purple-900/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2 z-0" />
       <div className="fixed bottom-0 right-0 w-[300px] h-[300px] bg-pink-900/10 blur-[100px] rounded-full pointer-events-none translate-y-1/2 z-0" />
 
@@ -290,9 +315,11 @@ export default function Dashboard({
         </div>
       </main>
 
+      {/* MODAIS */}
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
+      {/* Menu Mobile Flutuante */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
@@ -316,7 +343,8 @@ export default function Dashboard({
   );
 }
 
-function TabButton({ active, onClick, label, icon }: any) {
+// Subcomponentes utilitários
+function TabButton({ active, onClick, label, icon }: { active: boolean; onClick: () => void; label: string; icon: React.ReactNode }) {
   return (
     <button 
       onClick={onClick} 
@@ -328,7 +356,7 @@ function TabButton({ active, onClick, label, icon }: any) {
   );
 }
 
-function NavIcon({ active, onClick, icon, label }: any) {
+function NavIcon({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
   return (
     <button 
       onClick={onClick} 

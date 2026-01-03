@@ -1,35 +1,27 @@
-import type { Metadata, Viewport } from "next"; // Importa Viewport
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next"; // Importe Viewport
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"] });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "FinLove",
-  description: "Gerencie suas finanças com amor",
-  manifest: "/manifest.webmanifest", // Link para o manifesto gerado
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "FinLove",
-  },
-};
-
+// 1. Configuração de Viewport separada (Padrão Next.js 16)
 export const viewport: Viewport = {
-  themeColor: "#130b20",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
+  userScalable: false, // Impede zoom de pinça (sensação de app)
+  themeColor: "#130b20",
+};
+
+// 2. Metadata (Título e SEO)
+export const metadata: Metadata = {
+  title: "FinLove",
+  description: "Gerencie suas finanças com amor.",
+  manifest: "/manifest.json",
+  icons: {
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({
@@ -39,11 +31,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#130b20] text-white`}
-      >
+      <body className={`${inter.className} bg-[#130b20] text-gray-100`}>
         {children}
-        <Toaster position="top-center" richColors theme="dark" />
+        <Toaster richColors position="top-center" />
       </body>
     </html>
   );

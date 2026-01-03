@@ -26,7 +26,7 @@ export default async function DashboardPage() {
   const userId = await getUserFromToken();
   if (!userId) redirect('/login');
 
-  // ETAPA 1: Buscar o usuário primeiro (Necessário para saber quem é o parceiro)
+  // ETAPA 1: Buscar o usuário primeiro
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -39,13 +39,13 @@ export default async function DashboardPage() {
     }
   });
 
-  // Define quais IDs vamos consultar (Eu + Parceiro)
+  // Define quais IDs vamos consultar
   const targetUserIds = [userId];
   if (user?.partnerId) {
     targetUserIds.push(user.partnerId);
   }
 
-  // ETAPA 2: Buscar o restante em paralelo (Agora temos o targetUserIds pronto)
+  // ETAPA 2: Buscar o restante em paralelo
   const [
     _, // Resultado da recorrência
     financialSummary,
@@ -56,7 +56,6 @@ export default async function DashboardPage() {
     
     getFinancialSummaryAction(),
 
-    // Agora usamos targetUserIds que já foi calculado
     prisma.transaction.findMany({
       where: { 
         userId: { in: targetUserIds } 
@@ -74,11 +73,13 @@ export default async function DashboardPage() {
     })
   ]);
 
-  // Serialização dos dados
+  // Serialização dos dados com CORREÇÃO DE TIPO
   const serializedTransactions = rawTransactions.map(t => ({
     ...t,
     amount: Number(t.amount),
     date: t.date.toISOString(),
+    // AQUI ESTÁ A CORREÇÃO: Forçamos o tipo para o que o Dashboard espera
+    type: t.type as 'INCOME' | 'EXPENSE' | 'INVESTMENT',
   }));
 
   const totalSavings = Number(savingsAgg._sum.amount || 0);

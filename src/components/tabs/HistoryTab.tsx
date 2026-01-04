@@ -17,7 +17,7 @@ import {
   CreditCard,
   Wallet
 } from 'lucide-react';
-import { toggleTransactionStatus } from '@/app/actions'; // Importe a action
+import { toggleTransactionStatus } from '@/app/actions';
 import { toast } from 'sonner';
 
 interface HistoryTabProps {
@@ -44,7 +44,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
 
   // Função para marcar como Pago/Não Pago
   const handleToggleStatus = async (id: string, currentStatus: boolean, e: React.MouseEvent) => {
-    e.stopPropagation(); // Evita abrir o modal de edição se clicar no check
+    e.stopPropagation();
     setLoadingId(id);
     try {
       await toggleTransactionStatus(id, currentStatus);
@@ -74,7 +74,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
   const handleExportCSV = () => {
     const headers = ['Data', 'Descrição', 'Categoria', 'Tipo', 'Valor', 'Status', 'Método'];
     const rows = filteredTransactions.map(t => [
-      format(t.date, 'yyyy-MM-dd HH:mm'),
+      format(new Date(t.date), 'yyyy-MM-dd HH:mm'),
       `"${t.description.replace(/"/g, '""')}"`,
       t.category,
       t.type,
@@ -141,73 +141,85 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
             return (
               <div
                 key={t.id}
-                className={`group flex items-center justify-between p-4 bg-[#1f1630]/60 backdrop-blur-sm hover:bg-[#1f1630] border rounded-2xl transition-all duration-300 hover:shadow-lg ${
+                // LAYOUT RESPONSIVO OTIMIZADO (flex-col no mobile, row no desktop)
+                className={`group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-[#1f1630]/60 backdrop-blur-sm hover:bg-[#1f1630] border rounded-2xl transition-all duration-300 hover:shadow-lg gap-4 ${
                   !t.isPaid ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/5'
                 }`}
               >
-                {/* Esquerda: Ícone e Detalhes */}
-                <div className="flex items-center gap-4">
-                  {/* Ícone de Tipo ou Botão de Status */}
-                  {t.type === 'EXPENSE' ? (
-                     <button 
-                       onClick={(e) => handleToggleStatus(t.id, t.isPaid, e)}
-                       disabled={loadingId === t.id}
-                       className={`p-3 rounded-full transition-all ${t.isPaid ? style.bg + ' ' + style.color : 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20'}`}
-                       title={t.isPaid ? "Pago" : "Pendente (Clique para pagar)"}
-                     >
-                        {loadingId === t.id ? (
-                           <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                        ) : t.isPaid ? (
-                           <CheckCircle2 size={24} />
-                        ) : (
-                           <Circle size={24} />
-                        )}
-                     </button>
-                  ) : (
-                    <div className={`p-3 rounded-full ${style.bg} ${style.color}`}>
-                      {style.icon}
-                    </div>
-                  )}
+                {/* ESQUERDA: Ícone e Detalhes */}
+                <div className="flex items-start gap-4 min-w-0 flex-1">
+                  
+                  {/* Botão de Status / Ícone */}
+                  <div className="shrink-0 mt-1 sm:mt-0">
+                    {t.type === 'EXPENSE' ? (
+                        <button 
+                          onClick={(e) => handleToggleStatus(t.id, t.isPaid, e)}
+                          disabled={loadingId === t.id}
+                          className={`p-3 rounded-full transition-all ${t.isPaid ? style.bg + ' ' + style.color : 'bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20'}`}
+                          title={t.isPaid ? "Pago" : "Pendente (Clique para pagar)"}
+                        >
+                          {loadingId === t.id ? (
+                             <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          ) : t.isPaid ? (
+                             <CheckCircle2 size={24} />
+                          ) : (
+                             <Circle size={24} />
+                          )}
+                        </button>
+                    ) : (
+                      <div className={`p-3 rounded-full ${style.bg} ${style.color}`}>
+                        {style.icon}
+                      </div>
+                    )}
+                  </div>
 
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className={`font-bold text-sm md:text-base ${!t.isPaid ? 'text-yellow-100' : 'text-white'}`}>
+                  {/* Textos e Badges */}
+                  <div className="flex flex-col min-w-0 gap-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className={`font-bold text-sm md:text-base truncate pr-2 ${!t.isPaid ? 'text-yellow-100' : 'text-white'}`}>
                         {t.description}
                       </p>
                       {/* Badge de Parcela */}
                       {isInstallment && (
-                        <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30">
+                        <span className="shrink-0 text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 whitespace-nowrap">
                           {t.currentInstallment}/{t.installments}
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                      {/* Ícone Método Pagamento */}
-                      <span className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5" title={isCredit ? "Cartão de Crédito" : "Débito/Dinheiro"}>
-                         {isCredit ? <CreditCard size={10} /> : <Wallet size={10} />}
-                         <span className="capitalize">{t.category}</span>
-                      </span>
-                      <span>•</span>
-                      <span>{format(t.date, "d 'de' MMM", { locale: ptBR })}</span>
-                      {!t.isPaid && <span className="text-yellow-500 font-bold">• Pendente</span>}
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      {/* Método de Pagamento e Categoria */}
+                      <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5 max-w-full" title={isCredit ? "Cartão de Crédito" : "Débito/Dinheiro"}>
+                          {isCredit ? <CreditCard size={10} className="shrink-0" /> : <Wallet size={10} className="shrink-0" />}
+                          <span className="capitalize truncate max-w-[100px]">{t.category}</span>
+                      </div>
+                      
+                      <span className="hidden xs:inline">•</span>
+                      <span className="whitespace-nowrap">{format(new Date(t.date), "d 'de' MMM", { locale: ptBR })}</span>
+                      
+                      {!t.isPaid && (
+                        <>
+                          <span className="hidden xs:inline">•</span>
+                          <span className="text-yellow-500 font-bold whitespace-nowrap">Pendente</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Direita: Valor e Ações */}
-                <div className="flex items-center gap-3 md:gap-6">
+                {/* DIREITA: Valor e Ações (Alinhamento corrigido para Mobile) */}
+                <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto pl-16 sm:pl-0">
                   <span className={`font-bold text-sm md:text-base whitespace-nowrap ${style.color}`}>
                     {t.type === 'EXPENSE' ? '- ' : '+ '}
-                    R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.amount))}
                   </span>
 
-                  {/* Botões Desktop */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
                     {t.type !== 'INVESTMENT' && (
                       <button
                         onClick={() => onEdit(t)}
                         className="p-2 text-gray-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition"
+                        title="Editar"
                       >
                         <Edit2 size={16} />
                       </button>
@@ -215,6 +227,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete }: HistoryTa
                     <button
                       onClick={() => onDelete(t.id)}
                       className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                      title="Excluir"
                     >
                       <Trash2 size={16} />
                     </button>

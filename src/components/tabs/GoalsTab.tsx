@@ -1,9 +1,10 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Target, AlertTriangle, Save, Lightbulb, Trophy } from 'lucide-react';
 import { updateSpendingLimitAction } from '@/app/actions';
 import { toast } from 'sonner';
+import { formatCurrency } from '@/lib/utils';
 
 interface GoalsTabProps {
   income: number;
@@ -12,10 +13,20 @@ interface GoalsTabProps {
   currentLimit: number;
 }
 
+// 1. Lista Expandida de Dicas (12 itens)
 const MOTIVATIONAL_TIPS = [
-  "💡 A regra 50-30-20: 50% necessidades, 30% desejos, 20% poupança.",
-  "💡 Evite compras por impulso: espere 24h antes de decidir.",
-  "💡 Pague-se primeiro: invista assim que receber.",
+  "💡 Regra 50-30-20: 50% para o essencial, 30% para desejos e 20% para o futuro.",
+  "💡 Antes de comprar algo caro, espere 24h. Se a vontade passar, era impulso.",
+  "💡 Pague-se primeiro: assim que receber, separe o valor do investimento antes de gastar.",
+  "💡 Fundo de emergência: tente juntar o equivalente a 3 a 6 meses do seu custo de vida.",
+  "💡 Revise suas assinaturas mensais. Você realmente usa todos esses streamings?",
+  "💡 Pequenos gastos somam muito. Aquele café diário pode virar uma viagem no fim do ano.",
+  "💡 Evite dívidas de cartão de crédito. Os juros compostos trabalham contra você.",
+  "💡 Compare preços sempre. Ferramentas online encontram descontos em segundos.",
+  "💡 Defina metas claras. 'Juntar dinheiro' é vago; 'Juntar R$ 5k para férias' é um plano.",
+  "💡 Diversifique. Nunca coloque todos os seus ovos na mesma cesta de investimentos.",
+  "💡 Negocie descontos à vista. O 'não' você já tem, busque o desconto.",
+  "💡 Use a regra dos 30 dias para compras não essenciais. Se esperar, muitas vezes desiste."
 ];
 
 export default function GoalsTab({ income, expense, transactions, currentLimit }: GoalsTabProps) {
@@ -25,6 +36,14 @@ export default function GoalsTab({ income, expense, transactions, currentLimit }
   const percentage = limit > 0 ? (expense / limit) * 100 : 0;
   const isOverLimit = expense > limit;
   const remaining = Math.max(0, limit - expense);
+
+  // 2. Lógica de Rotação por Hora
+  // Usamos useMemo para calcular apenas na renderização (evita recálculos desnecessários)
+  const currentTip = useMemo(() => {
+    const currentHour = new Date().getHours();
+    // O operador % (módulo) garante que o índice sempre esteja dentro do array (0 a 11)
+    return MOTIVATIONAL_TIPS[currentHour % MOTIVATIONAL_TIPS.length];
+  }, []);
 
   const handleSave = async () => {
     setLoading(true);
@@ -81,7 +100,7 @@ export default function GoalsTab({ income, expense, transactions, currentLimit }
             <div className="bg-[#130b20] p-6 rounded-2xl border border-white/5">
               <div className="flex justify-between text-sm mb-3">
                 <span className="text-gray-400">Gasto Atual</span>
-                <span className="text-white font-bold">R$ {expense.toFixed(2)}</span>
+                <span className="text-white font-bold">{formatCurrency(expense)}</span>
               </div>
               
               <div className="h-6 bg-gray-800 rounded-full overflow-hidden relative shadow-inner mb-2">
@@ -95,7 +114,7 @@ export default function GoalsTab({ income, expense, transactions, currentLimit }
                 <span className={isOverLimit ? 'text-red-400 font-bold' : 'text-green-400'}>
                   {percentage.toFixed(1)}% utilizado
                 </span>
-                <span className="text-gray-500">Meta: R$ {limit.toFixed(2)}</span>
+                <span className="text-gray-500">Meta: {formatCurrency(limit)}</span>
               </div>
             </div>
           </div>
@@ -116,8 +135,8 @@ export default function GoalsTab({ income, expense, transactions, currentLimit }
           </div>
           <p className={`text-sm leading-relaxed ${isOverLimit ? 'text-red-200/80' : 'text-green-200/80'}`}>
             {isOverLimit 
-              ? `Você excedeu seu limite em R$ ${(expense - limit).toFixed(2)}. Tente rever seus gastos supérfluos.` 
-              : `Parabéns! Você ainda tem R$ ${remaining.toFixed(2)} disponíveis antes de atingir o teto.`}
+              ? `Você excedeu seu limite em ${formatCurrency(expense - limit)}. Tente rever seus gastos supérfluos.` 
+              : `Parabéns! Você ainda tem ${formatCurrency(remaining)} disponíveis antes de atingir o teto.`}
           </p>
         </div>
 
@@ -125,8 +144,9 @@ export default function GoalsTab({ income, expense, transactions, currentLimit }
         <div className="bg-gradient-to-br from-blue-900/20 to-blue-800/10 border border-blue-500/20 p-6 rounded-3xl relative overflow-hidden">
           <Lightbulb className="text-blue-400 mb-3" size={28} />
           <h4 className="font-bold text-blue-100 mb-2">Dica Financeira</h4>
-          <p className="text-blue-200/70 text-sm">
-            {MOTIVATIONAL_TIPS[new Date().getDate() % MOTIVATIONAL_TIPS.length]}
+          <p className="text-blue-200/70 text-sm italic">
+            {/* 3. Renderização da Dica Atual */}
+            {currentTip}
           </p>
         </div>
       </div>

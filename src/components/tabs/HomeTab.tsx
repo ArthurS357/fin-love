@@ -19,12 +19,14 @@ import {
   PieChart, 
   Pie 
 } from 'recharts';
+// Importação da nossa função utilitária
+import { formatCurrency } from '@/lib/utils';
 
 interface HomeTabProps {
   income: number;
   expense: number;
   balance: number;
-  accumulatedBalance: number; // NOVO: Saldo total da vida
+  accumulatedBalance: number;
   pieData: any[];
   barData: any[];
   privacyMode: boolean;
@@ -42,12 +44,12 @@ export default function HomeTab({
   privacyMode 
 }: HomeTabProps) {
 
-  // Lógica: Se o saldo total é 5000 e o do mês é 1000, então 4000 veio de antes.
   const previousBalance = accumulatedBalance - balance;
 
-  const formatCurrency = (value: number) => {
+  // Função auxiliar para controlar a privacidade
+  const displayValue = (value: number) => {
     if (privacyMode) return '••••••';
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    return formatCurrency(value);
   };
 
   return (
@@ -70,7 +72,7 @@ export default function HomeTab({
 
           <div className="mb-6">
             <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
-              {formatCurrency(accumulatedBalance)}
+              {displayValue(accumulatedBalance)}
             </h2>
           </div>
 
@@ -83,7 +85,7 @@ export default function HomeTab({
                 </div>
                 <div>
                    <p className="text-[10px] uppercase font-bold text-pink-200/70 tracking-wider">Mês Anterior</p>
-                   <p className="font-semibold text-lg">{formatCurrency(previousBalance)}</p>
+                   <p className="font-semibold text-lg">{displayValue(previousBalance)}</p>
                 </div>
              </div>
 
@@ -95,7 +97,7 @@ export default function HomeTab({
                 <div>
                    <p className="text-[10px] uppercase font-bold text-pink-200/70 tracking-wider">Resultado do Mês</p>
                    <p className={`font-semibold text-lg ${balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                     {balance > 0 ? '+' : ''}{formatCurrency(balance)}
+                     {balance > 0 ? '+' : ''}{displayValue(balance)}
                    </p>
                 </div>
              </div>
@@ -116,7 +118,7 @@ export default function HomeTab({
             </div>
             <span className="text-gray-400 text-sm font-medium">Entradas</span>
           </div>
-          <p className="text-2xl font-bold text-white">{formatCurrency(income)}</p>
+          <p className="text-2xl font-bold text-white">{displayValue(income)}</p>
         </div>
 
         {/* Saídas */}
@@ -130,7 +132,7 @@ export default function HomeTab({
             </div>
             <span className="text-gray-400 text-sm font-medium">Saídas</span>
           </div>
-          <p className="text-2xl font-bold text-white">{formatCurrency(expense)}</p>
+          <p className="text-2xl font-bold text-white">{displayValue(expense)}</p>
         </div>
       </div>
 
@@ -155,6 +157,8 @@ export default function HomeTab({
                 <Tooltip 
                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   contentStyle={{ backgroundColor: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
+                  // CORREÇÃO: Tipagem (value: any) aceita number | undefined
+                  formatter={(value: any) => [formatCurrency(value), 'Valor']}
                 />
                 <Bar dataKey="valor" radius={[6, 6, 0, 0]}>
                   {barData.map((entry, index) => (
@@ -192,6 +196,8 @@ export default function HomeTab({
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
                     itemStyle={{ color: '#fff' }}
+                    // CORREÇÃO: Tipagem (value: any)
+                    formatter={(value: any) => [formatCurrency(value), 'Valor']}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -206,7 +212,7 @@ export default function HomeTab({
             {pieData.length > 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                  <span className="text-xs text-gray-400 font-medium">Total</span>
-                 <span className="text-lg font-bold text-white">{formatCurrency(expense)}</span>
+                 <span className="text-lg font-bold text-white">{displayValue(expense)}</span>
               </div>
             )}
           </div>

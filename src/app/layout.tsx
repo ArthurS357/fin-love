@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { Analytics } from "@vercel/analytics/react"; 
-import { SpeedInsights } from "@vercel/speed-insights/next"; 
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { Toaster } from "sonner";
 
@@ -15,8 +15,10 @@ export const viewport: Viewport = {
   themeColor: "#130b20",
 };
 
-// OTIMIZAÇÃO: Metadados completos para SEO e Redes Sociais
 export const metadata: Metadata = {
+  // CORREÇÃO CRÍTICA: Define a base para URLs relativas (og:image, etc)
+  metadataBase: new URL('https://finlove-one.vercel.app/'),
+
   title: {
     template: '%s | FinLove',
     default: 'FinLove - Finanças para Casais',
@@ -25,21 +27,27 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   icons: {
     apple: "/icon-192.png",
-    icon: "/favicon-32x32.png", // Garante fallback
+    icon: "/favicon-32x32.png",
   },
-  // Configuração para compartilhamento (WhatsApp, Twitter, etc)
   openGraph: {
     title: "FinLove - Finanças Compartilhadas",
     description: "A melhor forma de organizar o dinheiro do casal.",
-    url: "https://finlove.vercel.app", // Coloque sua URL real aqui
+    url: "/", // Agora pode ser relativo graças ao metadataBase
     siteName: "FinLove",
     locale: "pt_BR",
     type: "website",
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'FinLove Dashboard' }] // Sugestão
   },
   robots: {
     index: true,
     follow: true,
   },
+  // Otimização para "Instalar Aplicativo" no iOS
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "FinLove"
+  }
 };
 
 export default function RootLayout({
@@ -52,8 +60,6 @@ export default function RootLayout({
       <body className={`${inter.className} bg-[#130b20] text-gray-100 antialiased`}>
         {children}
         <Toaster richColors position="top-center" />
-        
-        {/* Componentes de Monitoramento da Vercel (Não afetam performance visual) */}
         <Analytics />
         <SpeedInsights />
       </body>

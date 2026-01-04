@@ -2,10 +2,9 @@ import 'server-only';
 import { prisma } from '@/lib/prisma';
 import { startOfMonth, endOfMonth } from 'date-fns';
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 
-// Use 'cache' do React para garantir que se chamarmos a função 
-// várias vezes na mesma renderização, o banco só é acessado uma vez (Deduping).
-
+// Função auxiliar para buscar usuário (Cacheada por Request Memoization)
 export const getUserData = cache(async (userId: string) => {
   return await prisma.user.findUnique({
     where: { id: userId },
@@ -21,22 +20,20 @@ export const getUserData = cache(async (userId: string) => {
   });
 });
 
-export const getDashboardData = cache(async (userId: string, month: number, year: number) => {
-  // 1. Identificar Usuários (Eu + Parceiro)
+// Lógica interna de busca (sem cache, apenas a query crua)
+const fetchDashboardData = async (userId: string, month: number, year: number) => {
   const user = await getUserData(userId);
   if (!user) return null;
   
   const targetUserIds = [userId];
   if (user.partnerId) targetUserIds.push(user.partnerId);
 
-  // 2. Definir Intervalo de Datas
   const queryDate = new Date(year, month, 1);
   const startDate = startOfMonth(queryDate);
   const endDate = endOfMonth(queryDate);
 
-  // 3. Executar Queries em Paralelo (Mais rápido)
   const [transactions, financialSummary, savingsAgg] = await Promise.all([
-    // A. Transações do Mês (Filtradas por data corretamente!)
+    // 1. Transações do Mês
     prisma.transaction.findMany({
       where: {
         userId: { in: targetUserIds },
@@ -45,33 +42,42 @@ export const getDashboardData = cache(async (userId: string, month: number, year
       orderBy: { date: 'desc' }
     }),
 
-    // B. Resumo Financeiro Global (Para Saldo Acumulado Histórico)
+    // 2. Resumo para Saldo (Histórico Completo)
     prisma.transaction.groupBy({
       by: ['type'],
       where: { userId: { in: targetUserIds } },
       _sum: { amount: true }
     }),
 
-    // C. Total Investido (Geral)
+    // 3. Total Guardado
     prisma.transaction.aggregate({
       _sum: { amount: true },
       where: { userId: { in: targetUserIds }, type: 'INVESTMENT' }
     })
   ]);
 
-  // 4. Processar Saldo Acumulado
   const totalIncome = Number(financialSummary.find(f => f.type === 'INCOME')?._sum.amount || 0);
   const totalExpense = Number(financialSummary.find(f => f.type === 'EXPENSE')?._sum.amount || 0);
   const totalInvested = Number(financialSummary.find(f => f.type === 'INVESTMENT')?._sum.amount || 0);
-  
-  // Saldo = Entradas - Saídas - Investimentos (se considerar investimento como saída de caixa)
-  // Ajuste essa lógica conforme sua preferência de negócio
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
   return {
     transactions,
     accumulatedBalance,
     totalSavings: Number(savingsAgg._sum.amount || 0),
-    user // Retornamos o user também para aproveitar o fetch
+    user
   };
-});
+};
+
+// --- AQUI ESTÁ A OTIMIZAÇÃO (Data Cache) ---
+export const getDashboardData = async (userId: string, month: number, year: number) => {
+  // Envolvemos a busca no unstable_cache
+  return await unstable_cache(
+    async () => fetchDashboardData(userId, month, year),
+    [`dashboard-${userId}-${month}-${year}`], // Chave única do Cache (Key)
+    {
+      tags: [`dashboard:${userId}`], // TAG para invalidar tudo desse usuário de uma vez
+      revalidate: 3600 // Revalidar automaticamente a cada 1 hora (opcional)
+    }
+  )();
+};

@@ -17,11 +17,10 @@ export default async function DashboardPage(props: PageProps) {
   const monthParam = searchParams.month ? Number(searchParams.month) : now.getMonth();
   const yearParam = searchParams.year ? Number(searchParams.year) : now.getFullYear();
 
-  // 2. Buscar Dados Otimizados
+  // 2. Buscar Dados Otimizados (Cache)
   const data = await getDashboardData(userId, monthParam, yearParam);
   
   if (!data) {
-    // Caso de erro extremo (usuário deletado durante a sessão)
     redirect('/login');
   }
 
@@ -31,7 +30,9 @@ export default async function DashboardPage(props: PageProps) {
   const serializedTransactions = transactions.map(t => ({
     ...t,
     amount: Number(t.amount),
-    date: t.date.toISOString(),
+    // CORREÇÃO AQUI:
+    // O cache pode transformar a data em string. 'new Date()' resolve ambos os casos (Date ou String).
+    date: new Date(t.date).toISOString(), 
     type: t.type as 'INCOME' | 'EXPENSE' | 'INVESTMENT',
   }));
 

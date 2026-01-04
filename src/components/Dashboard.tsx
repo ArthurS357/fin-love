@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useOptimistic, startTransition } from 'react';
+// CORREÇÃO: Adicionado useState de volta aos imports
+import { useState, useMemo, useOptimistic, startTransition, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation'; // <--- 1. Import necessário
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
@@ -13,7 +14,7 @@ import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
-// --- DEFINIÇÃO DE TIPOS ---
+// --- TIPAGEM ---
 export interface Transaction {
   id: string;
   description: string;
@@ -37,7 +38,6 @@ interface DashboardProps {
   totalSavings: number;
   savingsGoalName: string;
   accumulatedBalance: number;
-  // --- 2. Nova prop para receber a data da URL ---
   selectedDate: {
     month: number;
     year: number;
@@ -72,31 +72,50 @@ export default function Dashboard({
   totalSavings, 
   savingsGoalName,
   accumulatedBalance,
-  selectedDate // <--- Recebendo a prop
+  selectedDate 
 }: DashboardProps) {
   
-  const router = useRouter(); // <--- Hook de navegação
-  
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // 1. ESTADO DA ABA VIA URL (Deep Linking)
+  const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile') || 'home';
+
+  // Estados locais de UI
   const [privacyMode, setPrivacyMode] = useState(false); 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  // --- 3. Lógica de Data Atualizada ---
-  // A data visual é derivada da prop, não mais um estado local isolado
+  // 2. FUNÇÃO HELPER PARA URL
+  const createQueryString = useCallback(
+    (name: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set(name, value);
+      return params.toString();
+    },
+    [searchParams]
+  );
+
+  const handleTabChange = (tab: string) => {
+    router.push(`${pathname}?${createQueryString('tab', tab)}`, { scroll: false });
+  };
+
   const currentDate = useMemo(() => {
     return new Date(selectedDate.year, selectedDate.month, 1);
   }, [selectedDate]);
 
-  // Função para navegar e atualizar a URL
   const handleChangeMonth = (offset: number) => {
     const newDate = addMonths(currentDate, offset);
-    router.push(`/dashboard?month=${newDate.getMonth()}&year=${newDate.getFullYear()}`);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('month', newDate.getMonth().toString());
+    params.set('year', newDate.getFullYear().toString());
+    router.push(`${pathname}?${params.toString()}`);
   };
 
+  // --- OTIMIZAÇÕES E DADOS ---
   const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -109,12 +128,10 @@ export default function Dashboard({
     (state, idToDelete: string) => state.filter((t) => t.id !== idToDelete)
   );
 
-  // Mantemos o filtro visual por segurança, caso venham dados extras
   const monthlyTransactions = useMemo(() => {
     return transactions.filter(t => isSameMonth(t.date as Date, currentDate));
   }, [transactions, currentDate]);
 
-  // Cálculos Financeiros
   const income = monthlyTransactions
     .filter(t => t.type === 'INCOME')
     .reduce((acc, t) => acc + Number(t.amount), 0);
@@ -172,7 +189,7 @@ export default function Dashboard({
       <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-[#130b20]/80 border-b border-white/5 supports-[backdrop-filter]:bg-[#130b20]/60">
         <div className="max-w-7xl mx-auto px-4 h-16 md:h-20 flex items-center justify-between relative">
           
-          <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform z-50" onClick={() => setActiveTab('home')}>
+          <div className="flex items-center gap-3 cursor-pointer group active:scale-95 transition-transform z-50" onClick={() => handleTabChange('home')}>
             <div className="relative">
               <div className="absolute inset-0 bg-pink-500 blur-md opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
               <Heart size={28} className="text-pink-500 fill-pink-500/20 group-hover:scale-110 transition-transform duration-300" />
@@ -181,18 +198,16 @@ export default function Dashboard({
           </div>
 
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
-            <TabButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} label="Visão Geral" icon={<Home size={18} />} />
-            <TabButton active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} label="Metas" icon={<Target size={18} />} />
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} label="Extrato" icon={<Clock size={18} />} />
-            <TabButton active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} label="Conexão" icon={<Heart size={18} />} />
+            <TabButton active={activeTab === 'home'} onClick={() => handleTabChange('home')} label="Visão Geral" icon={<Home size={18} />} />
+            <TabButton active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} label="Metas" icon={<Target size={18} />} />
+            <TabButton active={activeTab === 'history'} onClick={() => handleTabChange('history')} label="Extrato" icon={<Clock size={18} />} />
+            <TabButton active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
           <div className="flex items-center gap-3 md:gap-4 z-50 relative">
             <button
               onClick={() => setPrivacyMode(!privacyMode)}
               className="p-2 text-purple-300 hover:text-white transition active:scale-95 hover:bg-white/5 rounded-full"
-              aria-label={privacyMode ? "Mostrar valores" : "Esconder valores"}
-              title={privacyMode ? "Mostrar valores" : "Esconder valores"}
             >
               {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
@@ -200,7 +215,6 @@ export default function Dashboard({
             <button
               onClick={() => setIsAIModalOpen(true)}
               className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95 hover:text-white"
-              aria-label="Consultor IA"
             >
               <Sparkles size={14} />
               <span className="hidden md:inline">IA</span>
@@ -218,7 +232,6 @@ export default function Dashboard({
               <button 
                 onClick={() => setIsMenuOpen(!isMenuOpen)} 
                 className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'bg-transparent text-gray-300 border-transparent hover:bg-white/5'}`}
-                aria-label="Menu principal"
               >
                 <Menu size={24} />
               </button>
@@ -234,7 +247,7 @@ export default function Dashboard({
                     </div>
                     <div className="p-2">
                       <button 
-                        onClick={() => { setActiveTab('profile'); setIsMenuOpen(false); }}
+                        onClick={() => { handleTabChange('profile'); setIsMenuOpen(false); }}
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
                       >
                         <UserIcon size={16} className="text-pink-400" /> Meu Perfil
@@ -273,7 +286,6 @@ export default function Dashboard({
                 <button 
                   onClick={() => setIsAIModalOpen(true)} 
                   className="p-2 text-purple-400 bg-purple-500/10 rounded-full border border-purple-500/20 active:scale-95 transition"
-                  aria-label="Abrir consultor IA"
                 >
                   <Sparkles size={20} />
                 </button>
@@ -282,10 +294,8 @@ export default function Dashboard({
 
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
               <button 
-                // --- 4. Botão Anterior usando a nova função ---
                 onClick={() => handleChangeMonth(-1)} 
                 className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"
-                aria-label="Mês anterior"
               >
                 <ChevronLeft size={18} />
               </button>
@@ -296,10 +306,8 @@ export default function Dashboard({
                 </span>
               </div>
               <button 
-                // --- 4. Botão Próximo usando a nova função ---
                 onClick={() => handleChangeMonth(1)} 
                 className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"
-                aria-label="Próximo mês"
               >
                 <ChevronRight size={18} />
               </button>
@@ -341,21 +349,20 @@ export default function Dashboard({
       {/* Menu Mobile Flutuante */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
-          <NavIcon active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} label="Início" />
-          <NavIcon active={activeTab === 'goals'} onClick={() => setActiveTab('goals')} icon={<Target size={22} />} label="Metas" />
+          <NavIcon active={activeTab === 'home'} onClick={() => handleTabChange('home')} icon={<Home size={22} />} label="Início" />
+          <NavIcon active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} icon={<Target size={22} />} label="Metas" />
           
           <div className="relative -top-8 mx-0.5">
             <button 
               onClick={handleOpenNew} 
               className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group"
-              aria-label="Nova transação"
             >
               <Plus size={28} strokeWidth={2.5} className="group-hover:rotate-90 transition-transform" />
             </button>
           </div>
           
-          <NavIcon active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Clock size={22} />} label="Extrato" />
-          <NavIcon active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} icon={<Heart size={22} />} label="Nós" />
+          <NavIcon active={activeTab === 'history'} onClick={() => handleTabChange('history')} icon={<Clock size={22} />} label="Extrato" />
+          <NavIcon active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} icon={<Heart size={22} />} label="Nós" />
         </nav>
       </div>
     </div>

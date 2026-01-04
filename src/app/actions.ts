@@ -2,7 +2,7 @@
 import 'server-only';
 
 import { prisma } from '@/lib/prisma'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
@@ -19,7 +19,7 @@ import {
   passwordSchema
 } from '@/lib/schemas'
 
-// --- OTIMIZAÇÃO: Importando lógica centralizada ---
+// --- OTIMIZAÇÃO: Importando lógica centralizada de Auth ---
 import { getUserId, JWT_SECRET } from '@/lib/auth';
 
 type ActionState = {
@@ -27,7 +27,9 @@ type ActionState = {
   error: string
 }
 
+// ==========================================
 // 1. AUTHENTICATION
+// ==========================================
 
 export async function registerUser(prevState: any, formData: FormData): Promise<ActionState> {
   const data = Object.fromEntries(formData)
@@ -79,7 +81,6 @@ export async function loginUser(prevState: any, formData: FormData): Promise<Act
       return { success: false, error: 'Credenciais inválidas.' }
     }
 
-    // Usa o JWT_SECRET centralizado
     const token = await new SignJWT({ sub: user.id })
         .setProtectedHeader({ alg: 'HS256' })
         .setExpirationTime('7d')
@@ -100,35 +101,39 @@ export async function logoutUser() {
   redirect('/login')
 }
 
+// ==========================================
 // 2. TRANSACTIONS (CRUD + PARCELAS)
+// ==========================================
 
 export async function addTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
 
-  // Validação Básica
-  const description = formData.get('description') as string;
-  const amountStr = formData.get('amount') as string;
-  const type = formData.get('type') as string;
-  const category = formData.get('category') as string;
-  const dateStr = formData.get('date') as string;
-  
-  if (!description || !amountStr || !type || !category) {
-      return { error: 'Dados inválidos' };
+  // 1. Validação com Zod (Segurança e Tipagem)
+  const rawData = Object.fromEntries(formData);
+  const validation = transactionSchema.safeParse(rawData);
+
+  if (!validation.success) {
+      return { error: validation.error.issues[0].message };
   }
 
-  const amount = parseFloat(amountStr);
-  const baseDate = dateStr ? new Date(dateStr) : new Date();
+  const { 
+    description, 
+    amount, 
+    type, 
+    category, 
+    date, 
+    paymentMethod, 
+    installments, 
+    isRecurring, 
+    recurringDay 
+  } = validation.data;
 
-  // Campos Avançados
-  const isRecurring = formData.get('isRecurring') === 'true';
-  const paymentMethod = formData.get('paymentMethod') as string || 'DEBIT';
-  const installments = parseInt(formData.get('installments') as string || '1');
-  const recurringDay = parseInt(formData.get('recurringDay') as string || '1');
+  const baseDate = date ? new Date(date) : new Date();
 
   try {
     // Lógica 1: Cartão de Crédito Parcelado
-    if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments > 1) {
+    if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
       const transactionsToCreate = [];
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
@@ -142,7 +147,7 @@ export async function addTransaction(formData: FormData) {
           paymentMethod: 'CREDIT',
           installments,
           currentInstallment: i + 1,
-          isPaid: false
+          isPaid: false // Parcelas futuras nascem não pagas
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
@@ -157,14 +162,14 @@ export async function addTransaction(formData: FormData) {
           type,
           category,
           date: baseDate,
-          paymentMethod,
-          isPaid: paymentMethod !== 'CREDIT'
+          paymentMethod: paymentMethod || 'DEBIT',
+          isPaid: paymentMethod !== 'CREDIT' // Se for crédito à vista, nasce em aberto
         },
       })
     }
 
     // Lógica 3: Recorrência com Dia Específico
-    if (isRecurring) {
+    if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       if (recurringDay) {
         nextRun = setDate(nextRun, recurringDay);
@@ -185,7 +190,11 @@ export async function addTransaction(formData: FormData) {
     }
 
     await checkBadgesAction()
-    revalidatePath('/dashboard')
+    
+    // OTIMIZAÇÃO: Invalida cache com 'max' para atualizar dados imediatamente
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -205,13 +214,20 @@ export async function updateTransaction(formData: FormData) {
     return { error: validation.error.issues[0].message }
   }
 
-  const { type, amount, description, category } = validation.data
+  const { type, amount, description, category, date } = validation.data
 
   await prisma.transaction.update({
     where: { id },
-    data: { type: type as any, amount, description, category },
+    data: { 
+        type: type as any, 
+        amount, 
+        description, 
+        category,
+        date: date ? new Date(date) : undefined
+    },
   })
 
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -219,7 +235,10 @@ export async function updateTransaction(formData: FormData) {
 export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
+  
   await prisma.transaction.delete({ where: { id } })
+  
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -227,20 +246,24 @@ export async function deleteTransaction(id: string) {
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   const userId = await getUserId();
   if (!userId) return;
+  
   await prisma.transaction.update({
     where: { id, userId },
     data: { isPaid: !currentStatus }
   });
+  
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
 }
 
-// 3. FINANCIAL SUMMARY (CORRIGIDO PARA CASAL)
+// ==========================================
+// 3. FINANCIAL SUMMARY (LEGACY SUPPORT)
+// ==========================================
 
 export async function getFinancialSummaryAction() {
   const userId = await getUserId();
   if (!userId) return null;
 
-  // Busca parceiro
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { partnerId: true }
@@ -263,7 +286,9 @@ export async function getFinancialSummaryAction() {
   return { accumulatedBalance };
 }
 
+// ==========================================
 // 4. PARTNER & PROFILE
+// ==========================================
 
 export async function linkPartnerAction(formData: FormData) {
   const userId = await getUserId()
@@ -287,7 +312,12 @@ export async function linkPartnerAction(formData: FormData) {
     ])
 
     await checkBadgesAction()
+    
+    // Invalida cache de ambos os usuários
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${partner.id}`, 'max');
     revalidatePath('/dashboard')
+    
     return { success: true, message: 'Conectado!' }
   } catch { return { error: 'Erro ao conectar.' } }
 }
@@ -299,11 +329,17 @@ export async function unlinkPartnerAction() {
     const me = await prisma.user.findUnique({ where: { id: userId } })
     if (!me || !me.partnerId) return { error: 'Sem conexão ativa.' }
 
+    const partnerId = me.partnerId;
+
     await prisma.$transaction([
       prisma.user.update({ where: { id: userId }, data: { partnerId: null } }),
       prisma.user.update({ where: { id: me.partnerId }, data: { partnerId: null } })
     ])
+    
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${partnerId}`, 'max');
     revalidatePath('/dashboard')
+    
     return { success: true, message: 'Desconectado.' }
   } catch { return { error: 'Erro.' } }
 }
@@ -316,6 +352,8 @@ export async function updateSpendingLimitAction(formData: FormData) {
   if (!validation.success) return { error: validation.error.issues[0].message }
 
   await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
+  
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Limite atualizado!' }
 }
@@ -334,6 +372,8 @@ export async function addSavingsAction(formData: FormData) {
   })
 
   await checkBadgesAction()
+  
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Valor guardado!' }
 }
@@ -348,10 +388,13 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   if (!me) return { error: 'Usuário não encontrado' }
 
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
+  
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
+    revalidateTag(`dashboard:${me.partnerId}`, 'max');
   }
 
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Meta atualizada!' }
 }
@@ -373,7 +416,9 @@ export async function updatePasswordAction(formData: FormData) {
   return { success: true, message: 'Senha atualizada!' }
 }
 
+// ==========================================
 // 5. AI ADVICE
+// ==========================================
 
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
@@ -430,7 +475,9 @@ export async function generateFinancialAdviceAction() {
   }
 }
 
+// ==========================================
 // 6. CATEGORIES
+// ==========================================
 
 export async function getCategoriesAction() {
   const userId = await getUserId();
@@ -450,11 +497,8 @@ export async function createCategoryAction(formData: FormData) {
     return { error: validation.error.issues[0].message };
   }
 
-  // CORREÇÃO AQUI: Adicionado 'type' que estava faltando
   const { name, color, icon, type } = validation.data;
   const finalIcon = icon || 'Tag';
-  
-  // Se 'type' não vier do formulário, padrão é 'EXPENSE'
   const finalType = type || 'EXPENSE'; 
 
   try {
@@ -464,10 +508,12 @@ export async function createCategoryAction(formData: FormData) {
             name, 
             color, 
             icon: finalIcon,
-            type: finalType // Agora passamos o type obrigatório
+            type: finalType 
         } 
     });
     await checkBadgesAction()
+    
+    revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
     return { success: true, message: 'Categoria criada!' };
   } catch (err) { 
@@ -479,12 +525,17 @@ export async function createCategoryAction(formData: FormData) {
 export async function deleteCategoryAction(id: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
+  
   await prisma.category.delete({ where: { id, userId } });
+  
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
   return { success: true };
 }
 
-// 7. RECURRING
+// ==========================================
+// 7. RECURRING & JOBS
+// ==========================================
 
 export async function checkRecurringTransactionsAction() {
   const userId = await getUserId();
@@ -499,14 +550,13 @@ export async function checkRecurringTransactionsAction() {
 
     const newTransactions = [];
     const updates = [];
-    const MAX_MONTHS_LOOKAHEAD = 12; // Segurança: Processa no máximo 1 ano por vez
+    const MAX_MONTHS_LOOKAHEAD = 12;
 
     for (const rec of pending) {
       let runDate = new Date(rec.nextRun);
       const now = new Date();
       let safetyCounter = 0;
 
-      // Loop com trava de segurança
       while (
         (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) && 
         safetyCounter < MAX_MONTHS_LOOKAHEAD
@@ -520,12 +570,8 @@ export async function checkRecurringTransactionsAction() {
           date: new Date(runDate)
         });
         
-        // Avança para o próximo mês mantendo o dia original
-        // Se o dia original era 31 e o mês seguinte não tem, o date-fns ajusta, 
-        // mas idealmente usaríamos logica para manter o "dia de preferência"
         runDate = addMonths(runDate, 1);
         if (rec.dayOfMonth) {
-            // Tenta forçar o dia escolhido se possível no mês novo
             runDate = setDate(runDate, rec.dayOfMonth); 
         }
         
@@ -541,10 +587,10 @@ export async function checkRecurringTransactionsAction() {
     }
 
     if (newTransactions.length > 0) {
-      // createMany é muito mais rápido que loop de create
       await prisma.transaction.createMany({
         data: newTransactions
       });
+      revalidateTag(`dashboard:${userId}`, 'max');
     }
 
     await Promise.all(updates);
@@ -552,7 +598,9 @@ export async function checkRecurringTransactionsAction() {
   } catch (err) { console.error("Erro recorrência:", err) }
 }
 
+// ==========================================
 // 8. GAMIFICATION
+// ==========================================
 
 const BADGES_RULES = [
   { code: 'FIRST_TRX', name: 'Primeiro Passo', desc: 'Criou a primeira transação', icon: '🚀' },
@@ -589,7 +637,6 @@ export async function checkBadgesAction() {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
     
-    // Correção: Converter Decimal para Number
     const totalSaved = user.transactions
       .filter(t => t.type === 'INVESTMENT')
       .reduce((acc, t) => acc + Number(t.amount), 0);

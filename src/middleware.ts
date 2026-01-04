@@ -1,58 +1,84 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
-
-const secretStr = process.env.JWT_SECRET;
-const JWT_SECRET = new TextEncoder().encode(secretStr || 'default_secret');
+import { JWT_SECRET } from '@/lib/auth'; // <--- Importando a chave centralizada
 
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get('token')?.value;
   const { pathname } = req.nextUrl;
-
-  // 1. Rotas Públicas (Não precisam de login)
+  
+  // 1. Definição de Rotas
   const isPublicRoute = 
     pathname === '/login' || 
     pathname === '/register' || 
-    pathname === '/'; // Landing page se houver
+    pathname === '/';
 
-  // 2. Rotas Estáticas (Imagens, PWA, Next internals) - IMPORTANTE IGNORAR
-  const isStaticAsset = 
-    pathname.startsWith('/_next') || 
-    pathname.startsWith('/static') || 
-    pathname.includes('.') || // Pega .png, .ico, .json
-    pathname.startsWith('/api'); // Opcional: Se quiser tratar API diferente
+  // OBS: Removemos a checagem 'isStaticAsset' pois o config.matcher
+  // abaixo já impede que o middleware rode nesses arquivos.
 
-  if (isStaticAsset) {
-    return NextResponse.next();
-  }
+  // 2. Inicializa a resposta (para poder injetar headers depois)
+  let response = NextResponse.next();
 
-  // CENÁRIO A: Usuário NÃO logado tentando acessar rota protegida
+  // 3. Controle de Acesso (Auth)
+  
+  // CENÁRIO A: Usuário NÃO logado em rota protegida
   if (!token && !isPublicRoute) {
     const loginUrl = new URL('/login', req.url);
-    // Opcional: Salvar a url que ele tentou ir para redirecionar depois
+    // Redireciona para login
     return NextResponse.redirect(loginUrl);
   }
 
-  // CENÁRIO B: Usuário JÁ logado tentando acessar Login/Register
+  // CENÁRIO B: Usuário LOGADO tentando acessar Login/Register
   if (token && isPublicRoute) {
     try {
-      // Verifica se o token é válido antes de redirecionar
       await jwtVerify(token, JWT_SECRET);
+      // Se token válido, manda pro dashboard
       return NextResponse.redirect(new URL('/dashboard', req.url));
     } catch (err) {
-      // Se o token for inválido (expirado), deixa ele ir pro login e limpa o cookie
-      const response = NextResponse.next();
+      // Token inválido/expirado? Limpa o cookie e deixa acessar o login
+      response = NextResponse.next();
       response.cookies.delete('token');
-      return response;
     }
   }
 
-  return NextResponse.next();
+  // 4. Headers de Segurança (CRÍTICO PARA FINTECH)
+  // Adiciona headers na resposta que vai para o navegador
+  
+  const cspHeader = `
+    default-src 'self';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' *.vercel-insights.com;
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' blob: data:;
+    font-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    block-all-mixed-content;
+    upgrade-insecure-requests;
+  `.replace(/\s{2,}/g, ' ').trim();
+
+  response.headers.set('Content-Security-Policy', cspHeader);
+  response.headers.set('X-DNS-Prefetch-Control', 'on');
+  response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  response.headers.set('X-Frame-Options', 'DENY'); // Previne Clickjacking (site rodar em iframe)
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
+
+  return response;
 }
 
 export const config = {
-  // Matcher otimizado para excluir arquivos estáticos nativamente
+  // Matcher refinado para garantir que estáticos nunca passem pelo middleware
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js).*)',
+    /*
+     * Corresponde a todos os caminhos de solicitação, exceto:
+     * 1. /api/ (rotas de API geralmente têm auth própria ou não usam esse middleware)
+     * 2. /_next/static (arquivos estáticos)
+     * 3. /_next/image (arquivos de otimização de imagem)
+     * 4. favicon.ico, sitemap.xml, robots.txt (metadados)
+     * 5. arquivos com extensão (png, jpg, etc)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)',
   ],
 };

@@ -2,25 +2,25 @@
 
 import { useState, useMemo, useOptimistic, startTransition } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation'; // <--- 1. Import necessário
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
   Eye, EyeOff
 } from 'lucide-react';
-import { format, isSameMonth, parseISO, subMonths, addMonths } from 'date-fns';
+import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
 
-// --- DEFINIÇÃO DE TIPOS (Segurança) ---
-// Você pode mover isso para src/types/index.ts no futuro se quiser organizar melhor
+// --- DEFINIÇÃO DE TIPOS ---
 export interface Transaction {
   id: string;
   description: string;
   amount: number;
   type: 'INCOME' | 'EXPENSE' | 'INVESTMENT';
   category: string;
-  date: string | Date; // Aceita string (do servidor) ou Date (após processamento)
+  date: string | Date;
   paymentMethod?: string | null;
   installments?: number | null;
   currentInstallment?: number | null;
@@ -37,9 +37,14 @@ interface DashboardProps {
   totalSavings: number;
   savingsGoalName: string;
   accumulatedBalance: number;
+  // --- 2. Nova prop para receber a data da URL ---
+  selectedDate: {
+    month: number;
+    year: number;
+  };
 }
 
-// --- LAZY LOADING (Performance) ---
+// --- LAZY LOADING ---
 import HomeTab from './tabs/HomeTab';
 
 const HistoryTab = dynamic(() => import('./tabs/HistoryTab'), { 
@@ -66,19 +71,32 @@ export default function Dashboard({
   spendingLimit, 
   totalSavings, 
   savingsGoalName,
-  accumulatedBalance 
-}: DashboardProps) { // <--- Props tipadas aqui
+  accumulatedBalance,
+  selectedDate // <--- Recebendo a prop
+}: DashboardProps) {
+  
+  const router = useRouter(); // <--- Hook de navegação
+  
   const [activeTab, setActiveTab] = useState<'home' | 'history' | 'partner' | 'goals' | 'profile'>('home');
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [privacyMode, setPrivacyMode] = useState(false); 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
-  // Estado tipado para a transação em edição
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  // Normalização de datas (String -> Date Object)
+  // --- 3. Lógica de Data Atualizada ---
+  // A data visual é derivada da prop, não mais um estado local isolado
+  const currentDate = useMemo(() => {
+    return new Date(selectedDate.year, selectedDate.month, 1);
+  }, [selectedDate]);
+
+  // Função para navegar e atualizar a URL
+  const handleChangeMonth = (offset: number) => {
+    const newDate = addMonths(currentDate, offset);
+    router.push(`/dashboard?month=${newDate.getMonth()}&year=${newDate.getFullYear()}`);
+  };
+
   const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -86,13 +104,12 @@ export default function Dashboard({
     }));
   }, [initialTransactions]);
 
-  // Optimistic UI (Atualização instantânea ao deletar)
   const [transactions, deleteOptimisticTransaction] = useOptimistic(
     normalizedTransactions,
     (state, idToDelete: string) => state.filter((t) => t.id !== idToDelete)
   );
 
-  // Filtros de Data (Mês Atual)
+  // Mantemos o filtro visual por segurança, caso venham dados extras
   const monthlyTransactions = useMemo(() => {
     return transactions.filter(t => isSameMonth(t.date as Date, currentDate));
   }, [transactions, currentDate]);
@@ -126,7 +143,7 @@ export default function Dashboard({
   // Handlers
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
 
-  const handleEdit = (t: Transaction) => { // <--- Tipado
+  const handleEdit = (t: Transaction) => {
     setEditingTransaction(t);
     setIsModalOpen(true);
   };
@@ -265,7 +282,8 @@ export default function Dashboard({
 
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg self-center md:self-auto">
               <button 
-                onClick={() => setCurrentDate(subMonths(currentDate, 1))} 
+                // --- 4. Botão Anterior usando a nova função ---
+                onClick={() => handleChangeMonth(-1)} 
                 className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"
                 aria-label="Mês anterior"
               >
@@ -278,7 +296,8 @@ export default function Dashboard({
                 </span>
               </div>
               <button 
-                onClick={() => setCurrentDate(addMonths(currentDate, 1))} 
+                // --- 4. Botão Próximo usando a nova função ---
+                onClick={() => handleChangeMonth(1)} 
                 className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition"
                 aria-label="Próximo mês"
               >

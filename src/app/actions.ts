@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
-import { SignJWT, jwtVerify } from 'jose'
+import { SignJWT } from 'jose' 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore, setDate } from 'date-fns'
 import {
@@ -19,22 +19,8 @@ import {
   passwordSchema
 } from '@/lib/schemas'
 
-const secretStr = process.env.JWT_SECRET;
-if (!secretStr) throw new Error('JWT_SECRET não definida nas variáveis de ambiente.');
-const JWT_SECRET = new TextEncoder().encode(secretStr);
-
-// Helper: Obter ID do Usuário
-async function getUserId() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('token')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET)
-    return payload.sub as string
-  } catch {
-    return null
-  }
-}
+// --- OTIMIZAÇÃO: Importando lógica centralizada ---
+import { getUserId, JWT_SECRET } from '@/lib/auth';
 
 type ActionState = {
   success: boolean
@@ -62,7 +48,12 @@ export async function registerUser(prevState: any, formData: FormData): Promise<
       data: { name, email, password: hashedPassword, spendingLimit: 2000 },
     })
 
-    const token = await new SignJWT({ sub: user.id }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(JWT_SECRET)
+    // Usa o JWT_SECRET centralizado
+    const token = await new SignJWT({ sub: user.id })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('7d')
+        .sign(JWT_SECRET)
+
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
@@ -88,7 +79,12 @@ export async function loginUser(prevState: any, formData: FormData): Promise<Act
       return { success: false, error: 'Credenciais inválidas.' }
     }
 
-    const token = await new SignJWT({ sub: user.id }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(JWT_SECRET)
+    // Usa o JWT_SECRET centralizado
+    const token = await new SignJWT({ sub: user.id })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('7d')
+        .sign(JWT_SECRET)
+
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
 
@@ -623,4 +619,3 @@ export async function getBadgesAction() {
   if (!userId) return [];
   return await prisma.badge.findMany({ where: { userId }, orderBy: { earnedAt: 'desc' } });
 }
-

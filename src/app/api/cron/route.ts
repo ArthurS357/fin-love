@@ -6,18 +6,21 @@ import { addMonths, isBefore, setDate } from 'date-fns';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  // Segurança Opcional: Verificar se a chamada vem da Vercel
-  // const authHeader = request.headers.get('authorization');
-  // if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-  //   return new Response('Unauthorized', { status: 401 });
-  // }
+  // --- SEGURANÇA ATIVADA ---
+  // Verifica se o header Authorization contém o segredo definido na Vercel
+  const authHeader = request.headers.get('authorization');
+  
+  // Se não houver segredo configurado (dev) ou o header não bater, bloqueia
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
 
   try {
-    // 1. Busca TODAS as recorrências ativas e vencidas (de qualquer usuário)
+    // 1. Busca recorrências ativas e vencidas
     const pending = await prisma.recurringTransaction.findMany({
       where: {
         active: true,
-        nextRun: { lte: new Date() } // Data de execução menor ou igual a agora
+        nextRun: { lte: new Date() }
       }
     });
 
@@ -27,39 +30,36 @@ export async function GET(request: Request) {
 
     const newTransactions = [];
     const updates = [];
-    const MAX_MONTHS_LOOKAHEAD = 12; // Trava de segurança para não criar infinitas
+    const MAX_MONTHS_LOOKAHEAD = 12;
 
     for (const rec of pending) {
       let runDate = new Date(rec.nextRun);
       const now = new Date();
       let safetyCounter = 0;
 
-      // Gera as transações atrasadas até a data atual
       while (
         (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) && 
         safetyCounter < MAX_MONTHS_LOOKAHEAD
       ) {
         newTransactions.push({
-          userId: rec.userId, // Importante: Atribui ao dono correto
-          type: rec.type, // INCOME ou EXPENSE
+          userId: rec.userId,
+          type: rec.type,
           amount: rec.amount,
           description: `${rec.description} (Auto)`,
           category: rec.category,
           date: new Date(runDate),
-          isPaid: true, // Recorrências fixas geralmente já entram como "Lançadas/Pagas" ou a vencer
+          isPaid: true, // Recorrências fixas já entram pagas ou a vencer conforme lógica
         });
         
-        // Calcula a próxima data
+        // Lógica de avanço de mês
         runDate = addMonths(runDate, 1);
         if (rec.dayOfMonth) {
-            // Tenta manter o dia preferido (ex: dia 10)
             runDate = setDate(runDate, rec.dayOfMonth); 
         }
         
         safetyCounter++;
       }
       
-      // Agenda a atualização da data no banco
       updates.push(
         prisma.recurringTransaction.update({ 
           where: { id: rec.id }, 
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // 2. Executa tudo em lote (Alta Performance)
+    // 2. Executa em lote
     if (newTransactions.length > 0) {
       await prisma.transaction.createMany({
         data: newTransactions

@@ -7,7 +7,7 @@ import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
   Eye, EyeOff
-} from 'lucide-react'; // FileSpreadsheet removido pois não é mais usado no menu
+} from 'lucide-react';
 import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
@@ -86,7 +86,6 @@ const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), {
 const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
   loading: () => <TabSkeleton />
 });
-// PlanningTab removido daqui pois agora vive apenas dentro de HomeTab
 
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
@@ -100,7 +99,7 @@ export default function Dashboard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Estado da aba via URL (removido 'planning' das opções diretas)
+  // Estado da aba via URL
   const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile') || 'home';
 
   const [privacyMode, setPrivacyMode] = useState(false);
@@ -217,7 +216,6 @@ export default function Dashboard({
 
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => handleTabChange('home')} label="Início" icon={<Home size={18} />} />
-            {/* Planning removido daqui */}
             <TabButton active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => handleTabChange('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} label="Conexão" icon={<Heart size={18} />} />
@@ -312,7 +310,6 @@ export default function Dashboard({
               partnerId={partnerId}
             />
           )}
-          {/* Aba Planning removida daqui, pois já está dentro de HomeTab */}
           {activeTab === 'goals' && (
             <GoalsTab income={combinedStats.income} expense={combinedStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
           )}
@@ -336,11 +333,13 @@ export default function Dashboard({
       <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
-      {/* MOBILE NAV */}
+      {/* MOBILE NAV (Atualizado) */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => handleTabChange('home')} icon={<Home size={22} />} label="Início" />
-          {/* Botão Planos removido do Mobile */}
+
+          {/* Adicionado Metas no lugar de Planos */}
+          <NavIcon active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} icon={<Target size={22} />} label="Metas" />
 
           <div className="relative -top-8 mx-0.5">
             <button onClick={handleOpenNew} className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group">

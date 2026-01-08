@@ -24,9 +24,7 @@ import {
   budgetDataSchema
 } from '@/lib/schemas'
 
-// --- CORREÇÃO CRÍTICA PARA O BUILD ---
-// Importamos os tipos do schema e os re-exportamos para que
-// componentes do cliente (como PlanningTab) possam usá-los.
+// --- CORREÇÃO DE TIPOS (BUILD) ---
 import type { BudgetData, BudgetItem } from '@/lib/schemas';
 export type { BudgetData, BudgetItem };
 
@@ -168,9 +166,7 @@ export async function addTransaction(formData: FormData) {
   const baseDate = date ? new Date(date) : new Date();
 
   try {
-    // 1. Lógica de Parcelamento (Cartão de Crédito) com GROUP ID
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
-
       const installmentId = randomUUID();
       const transactionsToCreate = [];
 
@@ -180,7 +176,6 @@ export async function addTransaction(formData: FormData) {
 
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
-
         const isLast = i === installments - 1;
         const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
 
@@ -199,10 +194,7 @@ export async function addTransaction(formData: FormData) {
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
-    }
-
-    // 2. Lógica Padrão (À vista/Débito)
-    else {
+    } else {
       await prisma.transaction.create({
         data: {
           userId,
@@ -217,13 +209,11 @@ export async function addTransaction(formData: FormData) {
       })
     }
 
-    // 3. Lógica de Recorrência (Assinaturas)
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       if (recurringDay) {
         nextRun = setDate(nextRun, recurringDay);
       }
-
       await prisma.recurringTransaction.create({
         data: {
           userId,
@@ -239,10 +229,8 @@ export async function addTransaction(formData: FormData) {
     }
 
     await checkBadgesAction()
-
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
-
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -253,18 +241,14 @@ export async function addTransaction(formData: FormData) {
 export async function updateTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const id = formData.get('id') as string
   const rawData = Object.fromEntries(formData)
   const validation = transactionSchema.safeParse(rawData)
-
-  if (!validation.success) {
-    return { error: validation.error.issues[0].message }
-  }
+  if (!validation.success) return { error: validation.error.issues[0].message }
 
   const existingTransaction = await prisma.transaction.findUnique({ where: { id } });
   if (!existingTransaction || existingTransaction.userId !== userId) {
-    return { error: 'Não autorizado ou transação não encontrada.' };
+    return { error: 'Não autorizado.' };
   }
 
   const { type, amount, description, category, date } = validation.data
@@ -288,14 +272,9 @@ export async function updateTransaction(formData: FormData) {
 export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const transaction = await prisma.transaction.findUnique({ where: { id } });
-  if (!transaction || transaction.userId !== userId) {
-    return { error: 'Não autorizado.' };
-  }
-
+  if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
   await prisma.transaction.delete({ where: { id } })
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true }
@@ -304,15 +283,10 @@ export async function deleteTransaction(id: string) {
 export async function deleteInstallmentGroupAction(installmentId: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
-
   try {
     await prisma.transaction.deleteMany({
-      where: {
-        installmentId: installmentId,
-        userId: userId
-      }
+      where: { installmentId: installmentId, userId: userId }
     });
-
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
     return { success: true, message: 'Todas as parcelas foram removidas.' };
@@ -324,12 +298,10 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   const userId = await getUserId();
   if (!userId) return;
-
   await prisma.transaction.update({
     where: { id, userId },
     data: { isPaid: !currentStatus }
   });
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
 }
@@ -341,12 +313,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 export async function getFinancialSummaryAction() {
   const userId = await getUserId();
   if (!userId) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { partnerId: true }
-  });
-
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
   const userIds = [userId];
   if (user?.partnerId) userIds.push(user.partnerId);
 
@@ -359,7 +326,6 @@ export async function getFinancialSummaryAction() {
   const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
   const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
   const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
-
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
   return { accumulatedBalance };
@@ -372,16 +338,13 @@ export async function getFinancialSummaryAction() {
 export async function linkPartnerAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const validation = partnerSchema.safeParse({ email: formData.get('email') })
   if (!validation.success) return { error: validation.error.issues[0].message }
-
   const { email } = validation.data
 
   try {
     const me = await prisma.user.findUnique({ where: { id: userId } })
     if (!me) return { error: 'Usuário não encontrado.' }
-
     const partner = await prisma.user.findUnique({ where: { email } })
     if (!partner || partner.partnerId || me.partnerId || me.email === email) return { error: 'Parceiro inválido ou já conectado.' }
 
@@ -391,11 +354,9 @@ export async function linkPartnerAction(formData: FormData) {
     ])
 
     await checkBadgesAction()
-
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidateTag(`dashboard:${partner.id}`, 'max');
     revalidatePath('/dashboard')
-
     return { success: true, message: 'Conectado!' }
   } catch { return { error: 'Erro ao conectar.' } }
 }
@@ -406,7 +367,6 @@ export async function unlinkPartnerAction() {
   try {
     const me = await prisma.user.findUnique({ where: { id: userId } })
     if (!me || !me.partnerId) return { error: 'Sem conexão ativa.' }
-
     const partnerId = me.partnerId;
 
     await prisma.$transaction([
@@ -417,7 +377,6 @@ export async function unlinkPartnerAction() {
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidateTag(`dashboard:${partnerId}`, 'max');
     revalidatePath('/dashboard')
-
     return { success: true, message: 'Desconectado.' }
   } catch { return { error: 'Erro.' } }
 }
@@ -425,12 +384,9 @@ export async function unlinkPartnerAction() {
 export async function updateSpendingLimitAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const validation = spendingLimitSchema.safeParse({ limit: formData.get('limit') })
   if (!validation.success) return { error: validation.error.issues[0].message }
-
   await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Limite atualizado!' }
@@ -439,18 +395,14 @@ export async function updateSpendingLimitAction(formData: FormData) {
 export async function addSavingsAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const amount = parseFloat(formData.get('amount') as string)
   if (isNaN(amount) || amount <= 0) return { error: 'Valor inválido.' }
-
   const description = formData.get('description') as string || 'Caixinha'
 
   await prisma.transaction.create({
     data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
   })
-
   await checkBadgesAction()
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Valor guardado!' }
@@ -466,40 +418,51 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   if (!me) return { error: 'Usuário não encontrado' }
 
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
-
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
     revalidateTag(`dashboard:${me.partnerId}`, 'max');
   }
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Meta atualizada!' }
 }
 
 // ==========================================
-// 5. INTELIGÊNCIA ARTIFICIAL (GERAL) - COM FALLBACK
+// 5. INTELIGÊNCIA ARTIFICIAL (GERAL & HISTÓRICO)
 // ==========================================
 
+// --- NOVO: BUSCAR HISTÓRICO ---
+export async function getAiHistoryAction(context: string = 'GENERAL') {
+  const userId = await getUserId();
+  if (!userId) return [];
+
+  try {
+    const history = await prisma.aiChat.findMany({
+      where: { userId, context },
+      orderBy: { createdAt: 'asc' },
+      take: 50
+    });
+    return history;
+  } catch (error) {
+    console.error("Erro ao buscar histórico:", error);
+    return [];
+  }
+}
+
+// --- ATUALIZADO: GERAR CONSELHO COM HISTÓRICO ---
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
   if (!userId) return { success: false, error: 'Auth error' }
 
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) return { success: false, error: 'Chave de API da IA não configurada.' };
+  if (!apiKey) return { success: false, error: 'Chave de API não configurada.' };
 
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { partner: true }
     })
-
     if (!user) return { success: false, error: 'Usuário não encontrado.' }
-
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    if (user.lastAdvice && user.lastAdviceDate && user.lastAdviceDate > oneDayAgo) {
-      return { success: true, message: user.lastAdvice };
-    }
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -516,24 +479,31 @@ export async function generateFinancialAdviceAction() {
     if (transactions.length === 0) return { success: false, error: 'Sem dados suficientes.' }
 
     const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${Number(t.amount)} [${t.type}]`).join('\n')
-
     const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${Number(user.spendingLimit)}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável e direto.`;
 
-    // USANDO FUNÇÃO COM FALLBACK (GEMINI 2.0)
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
-    await prisma.user.update({
-      where: { id: userId },
+    // Salva histórico
+    await prisma.aiChat.create({
       data: {
-        lastAdvice: adviceText,
-        lastAdviceDate: new Date()
+        userId,
+        role: 'model',
+        message: adviceText,
+        context: 'GENERAL'
       }
     });
 
+    // Mantém compatibilidade legado (opcional)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { lastAdvice: adviceText, lastAdviceDate: new Date() }
+    });
+
+    revalidatePath('/dashboard');
     return { success: true, message: adviceText }
   } catch (error: any) {
     console.error("Erro na IA Geral:", error);
-    return { success: false, error: 'IA indisponível no momento. Tente mais tarde.' }
+    return { success: false, error: 'IA indisponível no momento.' }
   }
 }
 
@@ -551,13 +521,9 @@ export async function getCategoriesAction() {
 export async function createCategoryAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
-
   const rawData = Object.fromEntries(formData);
   const validation = categorySchema.safeParse(rawData);
-
-  if (!validation.success) {
-    return { error: validation.error.issues[0].message };
-  }
+  if (!validation.success) return { error: validation.error.issues[0].message };
 
   const { name, color, icon, type } = validation.data;
   const finalIcon = icon || 'Tag';
@@ -565,16 +531,9 @@ export async function createCategoryAction(formData: FormData) {
 
   try {
     await prisma.category.create({
-      data: {
-        userId,
-        name,
-        color,
-        icon: finalIcon,
-        type: finalType
-      }
+      data: { userId, name, color, icon: finalIcon, type: finalType }
     });
     await checkBadgesAction()
-
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
     return { success: true, message: 'Categoria criada!' };
@@ -587,9 +546,7 @@ export async function createCategoryAction(formData: FormData) {
 export async function deleteCategoryAction(id: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
-
   await prisma.category.delete({ where: { id, userId } });
-
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
   return { success: true };
@@ -619,10 +576,7 @@ export async function checkRecurringTransactionsAction() {
       const now = new Date();
       let safetyCounter = 0;
 
-      while (
-        (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) &&
-        safetyCounter < MAX_MONTHS_LOOKAHEAD
-      ) {
+      while ((isBefore(runDate, now) || runDate.getTime() <= now.getTime()) && safetyCounter < MAX_MONTHS_LOOKAHEAD) {
         newTransactions.push({
           userId,
           type: rec.type,
@@ -631,30 +585,20 @@ export async function checkRecurringTransactionsAction() {
           category: rec.category,
           date: new Date(runDate)
         });
-
         runDate = addMonths(runDate, 1);
-        if (rec.dayOfMonth) {
-          runDate = setDate(runDate, rec.dayOfMonth);
-        }
-
+        if (rec.dayOfMonth) runDate = setDate(runDate, rec.dayOfMonth);
         safetyCounter++;
       }
-
-      updates.push(
-        prisma.recurringTransaction.update({
-          where: { id: rec.id },
-          data: { nextRun: runDate }
-        })
-      );
+      updates.push(prisma.recurringTransaction.update({
+        where: { id: rec.id },
+        data: { nextRun: runDate }
+      }));
     }
 
     if (newTransactions.length > 0) {
-      await prisma.transaction.createMany({
-        data: newTransactions
-      });
+      await prisma.transaction.createMany({ data: newTransactions });
       revalidateTag(`dashboard:${userId}`, 'max');
     }
-
     await Promise.all(updates);
     revalidatePath('/dashboard');
   } catch (err) { console.error("Erro recorrência:", err) }
@@ -675,13 +619,11 @@ const BADGES_RULES = [
 export async function checkBadgesAction() {
   const userId = await getUserId();
   if (!userId) return;
-
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { transactions: true, badges: true, categories: true }
     });
-
     if (!user) return;
 
     const earnedCodes = user.badges.map(b => b.code);
@@ -693,20 +635,14 @@ export async function checkBadgesAction() {
     if (user.partnerId && !earnedCodes.includes('COUPLE_GOALS')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'COUPLE_GOALS')!);
     }
-
     const hasInvestment = user.transactions.some(t => t.type === 'INVESTMENT');
     if (hasInvestment && !earnedCodes.includes('SAVER_1')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
-
-    const totalSaved = user.transactions
-      .filter(t => t.type === 'INVESTMENT')
-      .reduce((acc, t) => acc + Number(t.amount), 0);
-
+    const totalSaved = user.transactions.filter(t => t.type === 'INVESTMENT').reduce((acc, t) => acc + Number(t.amount), 0);
     if (totalSaved >= 1000 && !earnedCodes.includes('BIG_SAVER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
     }
-
     if (user.categories.length > 0 && !earnedCodes.includes('CAT_MASTER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'CAT_MASTER')!);
     }
@@ -730,7 +666,7 @@ export async function getBadgesAction() {
 }
 
 // ==========================================
-// 9. PLANEJAMENTO MENSAL (ATUALIZADO E CORRIGIDO)
+// 9. PLANEJAMENTO MENSAL (ATUALIZADO)
 // ==========================================
 
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
@@ -738,7 +674,6 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
   if (!currentUserId) return null;
 
   let userIdToFetch = currentUserId;
-
   if (targetUserId && targetUserId !== currentUserId) {
     const me = await prisma.user.findUnique({ where: { id: currentUserId } });
     if (me?.partnerId === targetUserId) {
@@ -750,38 +685,23 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
 
   try {
     const budget = await prisma.monthlyBudget.findUnique({
-      where: {
-        userId_month_year: { userId: userIdToFetch, month, year }
-      }
+      where: { userId_month_year: { userId: userIdToFetch, month, year } }
     });
 
     const emptyBudget: BudgetData = { incomes: [], fixedExpenses: [], variableExpenses: [] };
+    if (!budget || !budget.data) return emptyBudget;
 
-    if (!budget || !budget.data) {
-      return emptyBudget;
-    }
-
-    // --- CORREÇÃO: PARSE SEGURO DE DADOS ---
-    // Se o banco retornou string (SQLite/Legado), parseamos. Se já for objeto, mantemos.
     let parsedData = budget.data;
     if (typeof parsedData === 'string') {
-      try {
-        parsedData = JSON.parse(parsedData);
-      } catch {
-        console.error("Erro: Dados do planejamento corrompidos (JSON inválido)");
-        return emptyBudget;
-      }
+      try { parsedData = JSON.parse(parsedData); } catch { return emptyBudget; }
     }
 
     const validation = budgetDataSchema.safeParse(parsedData);
-
     if (!validation.success) {
-      console.error("ALERTA: Dados de planejamento inválidos (Schema):", validation.error);
+      console.error("ALERTA: Dados de planejamento inválidos:", validation.error);
       return emptyBudget;
     }
-
     return validation.data as BudgetData;
-
   } catch (error) {
     console.error("Erro ao buscar planejamento:", error);
     return null;
@@ -793,32 +713,16 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
   if (!userId) return { error: 'Não autorizado', success: false };
 
   try {
-    // --- CORREÇÃO DE COMPATIBILIDADE (JSON vs STRING) ---
-    // Tenta salvar como objeto primeiro. Em ambientes como SQLite/Vercel Postgres antigos, 
-    // pode ser necessário stringify. O bloco catch lida com isso.
     const dataToSave = process.env.NODE_ENV === 'development' ? JSON.stringify(data) : data;
-
     await prisma.monthlyBudget.upsert({
-      where: {
-        userId_month_year: { userId, month, year }
-      },
-      update: {
-        data: dataToSave as any // Cast para evitar erro de tipagem estática
-      },
-      create: {
-        userId,
-        month,
-        year,
-        data: dataToSave as any
-      }
+      where: { userId_month_year: { userId, month, year } },
+      update: { data: dataToSave as any },
+      create: { userId, month, year, data: dataToSave as any }
     });
-
     revalidatePath('/dashboard');
     return { success: true, message: 'Planejamento salvo com sucesso!', error: '' };
   } catch (error) {
     console.error("Erro ao salvar planejamento:", error);
-
-    // FALLBACK DE COMPATIBILIDADE: Se o erro for de tipo esperado (String vs Object), forçamos stringify
     if (String(error).includes('Expected String') || String(error).includes('Invalid value')) {
       try {
         await prisma.monthlyBudget.upsert({
@@ -829,10 +733,9 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
         revalidatePath('/dashboard');
         return { success: true, message: 'Planejamento salvo (modo compatibilidade)!', error: '' };
       } catch (e) {
-        return { error: 'Erro crítico de compatibilidade no banco de dados. Tente "npx prisma generate".', success: false };
+        return { error: 'Erro crítico de compatibilidade no banco de dados.', success: false };
       }
     }
-
     return { error: 'Erro ao salvar.', success: false };
   }
 }
@@ -840,77 +743,53 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
 export async function generatePlanningAdviceAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error', success: false };
-
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    console.error("GOOGLE_API_KEY não configurada");
-    return { error: 'Configuração de IA ausente no servidor.', success: false };
-  }
+  if (!apiKey) return { error: 'Configuração de IA ausente.', success: false };
+
+  const contextKey = `PLANNING_${month}_${year}`;
 
   try {
     const budget = await prisma.monthlyBudget.findUnique({
       where: { userId_month_year: { userId, month, year } }
     });
+    if (!budget || !budget.data) return { error: 'Nenhum planejamento encontrado.', success: false };
 
-    if (!budget || !budget.data) {
-      return { error: 'Nenhum planejamento encontrado para analisar.', success: false };
-    }
-
-    // --- CORREÇÃO: PARSE SEGURO ANTES DA IA ---
     let parsedData = budget.data;
     if (typeof parsedData === 'string') {
-      try {
-        parsedData = JSON.parse(parsedData);
-      } catch {
-        return { error: 'Dados corrompidos no planejamento.', success: false };
-      }
+      try { parsedData = JSON.parse(parsedData); } catch { return { error: 'Dados corrompidos.', success: false }; }
     }
 
     const validation = budgetDataSchema.safeParse(parsedData);
-    if (!validation.success) {
-      return { error: 'Dados inconsistentes. Salve o planejamento novamente.', success: false };
-    }
+    if (!validation.success) return { error: 'Dados inconsistentes.', success: false };
 
     const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
     const hasIncome = data.incomes.length > 0;
-
-    // Validação mínima mais branda
-    if (itemCount < 1 && !hasIncome) {
-      return {
-        error: 'Poucos dados',
-        details: 'Adicione pelo menos algumas receitas ou despesas para a IA analisar.',
-        success: false
-      };
-    }
+    if (itemCount < 1 && !hasIncome) return { error: 'Poucos dados', details: 'Adicione mais dados.', success: false };
 
     const fmt = (val: number) => `R$ ${Number(val).toFixed(2)}`;
     const incomeStr = data.incomes.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
     const fixedStr = data.fixedExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
     const varStr = data.variableExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
 
-    const prompt = `
-      Atue como um consultor financeiro pessoal expert (Use a inteligência do modelo Gemini 2.0).
-      Analise este planejamento mensal:
-      [ENTRADAS]: ${incomeStr || "Nenhuma"}
-      [GASTOS FIXOS]: ${fixedStr || "Nenhum"}
-      [GASTOS DIVERSOS]: ${varStr || "Nenhum"}
-      
-      Responda em Markdown (max 3 parágrafos curtos):
-      1. Diagnóstico: O orçamento está saudável? (Sobra ou falta?)
-      2. Ação: Aponte explicitamente onde é possível economizar ou melhorar.
-      3. Veredito: Dê uma nota de 0 a 10 para este planejamento.
-      Seja direto, profissional mas motivador.
-    `;
+    const prompt = `(Contexto: Planejamento ${month + 1}/${year}) Analise: Entradas [${incomeStr}], Fixos [${fixedStr}], Variáveis [${varStr}]. Diagnóstico curto e ação recomendada.`;
 
-    // USANDO FUNÇÃO COM FALLBACK (GEMINI 2.0)
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
-    return { success: true, message: adviceText, error: '' };
+    // Salva histórico
+    await prisma.aiChat.create({
+      data: {
+        userId,
+        role: 'model',
+        message: adviceText,
+        context: contextKey
+      }
+    });
 
+    return { success: true, message: adviceText, error: '' };
   } catch (error: any) {
-    console.error("Erro CRÍTICO na IA de Planejamento:", error);
-    return { error: `Erro na IA: ${error.message || 'Serviço indisponível no momento.'}`, success: false };
+    console.error("Erro IA de Planejamento:", error);
+    return { error: `Erro na IA: ${error.message}`, success: false };
   }
 }
 
@@ -921,10 +800,8 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 export async function updateProfileNameAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Não autorizado' };
-
   const name = formData.get('name') as string;
   if (!name || name.length < 3) return { error: 'Nome inválido.' };
-
   await prisma.user.update({ where: { id: userId }, data: { name } });
   revalidatePath('/dashboard');
   return { success: true, message: 'Nome atualizado!' };
@@ -933,15 +810,12 @@ export async function updateProfileNameAction(formData: FormData) {
 export async function updatePasswordAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-
   const validation = passwordSchema.safeParse(Object.fromEntries(formData))
   if (!validation.success) return { error: validation.error.issues[0].message }
-
   const { currentPassword, newPassword } = validation.data
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user || !(await bcrypt.compare(currentPassword, user.password))) return { error: 'Senha atual incorreta.' }
-
   const hashed = await bcrypt.hash(newPassword, 10)
   await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
   return { success: true, message: 'Senha atualizada!' }
@@ -950,61 +824,34 @@ export async function updatePasswordAction(formData: FormData) {
 export async function deleteAccountAction() {
   const userId = await getUserId();
   if (!userId) return { error: 'Não autorizado' };
-
   try {
     await prisma.user.delete({ where: { id: userId } });
-
     const cookieStore = await cookies();
     cookieStore.delete('token');
-
     return { success: true };
-  } catch (error) {
-    return { error: 'Erro ao excluir conta.' };
-  }
+  } catch (error) { return { error: 'Erro ao excluir conta.' }; }
 }
 
 export async function forgotPasswordAction(formData: FormData) {
   const email = formData.get('email') as string;
-
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) return { success: true };
-
   const token = randomBytes(32).toString('hex');
   const expiry = new Date(Date.now() + 3600000); // 1 hora
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { resetToken: token, resetTokenExpiry: expiry }
-  });
-
+  await prisma.user.update({ where: { id: user.id }, data: { resetToken: token, resetTokenExpiry: expiry } });
   await sendPasswordResetEmail(email, token);
-
   return { success: true };
 }
 
 export async function resetPasswordAction(token: string, formData: FormData) {
   const password = formData.get('password') as string;
-  if (password.length < 6) return { error: 'A senha deve ter no mínimo 6 caracteres.' };
-
-  const user = await prisma.user.findFirst({
-    where: {
-      resetToken: token,
-      resetTokenExpiry: { gt: new Date() }
-    }
-  });
-
+  if (password.length < 6) return { error: 'Mínimo 6 caracteres.' };
+  const user = await prisma.user.findFirst({ where: { resetToken: token, resetTokenExpiry: { gt: new Date() } } });
   if (!user) return { error: 'Link inválido ou expirado.' };
-
   const hashedPassword = await bcrypt.hash(password, 10);
-
   await prisma.user.update({
     where: { id: user.id },
-    data: {
-      password: hashedPassword,
-      resetToken: null,
-      resetTokenExpiry: null
-    }
+    data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
   });
-
   return { success: true };
 }

@@ -4,6 +4,7 @@ generator client {
 }
 
 // Configuração do Banco de Dados (Vercel Postgres)
+// Se estiver usando SQLite local, troque provider para "sqlite" e remova directUrl
 datasource db {
   provider  = "postgresql"
   url       = env("POSTGRES_PRISMA_URL") // Usa o Pool para performance
@@ -20,11 +21,11 @@ model User {
   savingsGoal      String    @default("Caixinha")
   partnerId        String?   @unique
   
-  // Campos de IA
+  // Campos de IA (Legado - Mantido para compatibilidade)
   lastAdvice       String?   @db.Text
   lastAdviceDate   DateTime?
 
-  // Campos de Recuperação de Senha (O QUE FALTAVA)
+  // Campos de Recuperação de Senha
   resetToken       String?   @unique
   resetTokenExpiry DateTime?
 
@@ -40,10 +41,12 @@ model User {
   badges           Badge[]
   recurring        RecurringTransaction[]
   monthlyBudgets   MonthlyBudget[]
+  aiChats          AiChat[]  // Relação com o novo histórico
 
   @@index([email]) // Login rápido
 }
 
+// --- MODELO DE TRANSAÇÃO ---
 model Transaction {
   id                 String   @id @default(cuid())
   description        String
@@ -56,8 +59,8 @@ model Transaction {
   currentInstallment Int?
   isPaid             Boolean  @default(true)
   
-  // --- NOVO CAMPO ---
-  installmentId      String?  // Identificador único do grupo de parcelas
+  // Identificador único do grupo de parcelas
+  installmentId      String?
   
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -65,14 +68,12 @@ model Transaction {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  // Índices existentes...
   @@index([userId, date]) 
   @@index([userId, type])
-  
-  // --- NOVO ÍNDICE ---
   @@index([installmentId]) // Para deletar/buscar todas as parcelas rápido
 }
 
+// --- MODELO DE TRANSAÇÃO RECORRENTE ---
 model RecurringTransaction {
   id          String   @id @default(cuid())
   description String
@@ -91,6 +92,7 @@ model RecurringTransaction {
   @@index([active, nextRun])
 }
 
+// --- MODELO DE CATEGORIA ---
 model Category {
   id        String   @id @default(cuid())
   name      String
@@ -103,6 +105,7 @@ model Category {
   @@index([userId, type])
 }
 
+// --- MODELO DE CONQUISTAS (BADGES) ---
 model Badge {
   id          String   @id @default(cuid())
   code        String
@@ -135,4 +138,20 @@ model MonthlyBudget {
   // Garante apenas um planejamento por mês/ano por usuário
   @@unique([userId, month, year]) 
   @@index([userId, month, year])
+}
+
+// --- NOVO MODELO: HISTÓRICO DE CHAT DA IA ---
+model AiChat {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String   // "user" | "model"
+  message   String   @db.Text
+  context   String   @default("GENERAL") // Ex: "GENERAL", "PLANNING_0_2026"
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Índices para busca rápida do histórico
+  @@index([userId, context])
+  @@index([createdAt])
 }

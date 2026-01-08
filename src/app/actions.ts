@@ -21,7 +21,8 @@ import {
   partnerSchema,
   spendingLimitSchema,
   passwordSchema,
-  budgetDataSchema
+  budgetDataSchema,
+  BudgetData
 } from '@/lib/schemas'
 
 import { getUserId, JWT_SECRET } from '@/lib/auth';
@@ -34,11 +35,11 @@ type ActionState = {
 }
 
 // ==========================================
-// FUNÇÃO AUXILIAR: IA COM FALLBACK
+// FUNÇÃO AUXILIAR: IA COM FALLBACK (ATUALIZADA)
 // ==========================================
-// Tenta múltiplos modelos caso o principal falhe (404, sobrecarga, etc)
+// Tenta múltiplos modelos, priorizando o Gemini 2.0 Flash (Experimental)
 async function generateSmartAdvice(apiKey: string, prompt: string) {
-  const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  const modelsToTry = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
   const genAI = new GoogleGenerativeAI(apiKey);
 
   let lastError;
@@ -52,11 +53,10 @@ async function generateSmartAdvice(apiKey: string, prompt: string) {
       console.warn(`[IA] Falha ao tentar modelo ${modelName}:`, error.message);
       lastError = error;
 
-      // Se o erro for de autenticação (API Key inválida), não adianta tentar outros
+      // Se o erro for de autenticação, não adianta tentar outros
       if (error.message?.includes('API key') || error.message?.includes('403')) {
         throw new Error('Chave de API inválida ou sem permissão.');
       }
-      // Se não for erro de chave, continua para o próximo modelo do loop
     }
   }
 
@@ -518,7 +518,7 @@ export async function generateFinancialAdviceAction() {
 
     const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${Number(user.spendingLimit)}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável e direto.`;
 
-    // USANDO FUNÇÃO COM FALLBACK
+    // USANDO FUNÇÃO COM FALLBACK (GEMINI 2.0)
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
     await prisma.user.update({
@@ -729,20 +729,8 @@ export async function getBadgesAction() {
 }
 
 // ==========================================
-// 9. PLANEJAMENTO MENSAL (BUDGET + IA) - COM FALLBACK
+// 9. PLANEJAMENTO MENSAL (ATUALIZADO E CORRIGIDO)
 // ==========================================
-
-export type BudgetItem = {
-  id: string;
-  name: string;
-  amount: number;
-};
-
-export type BudgetData = {
-  incomes: BudgetItem[];
-  fixedExpenses: BudgetItem[];
-  variableExpenses: BudgetItem[];
-};
 
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
   const currentUserId = await getUserId();
@@ -772,10 +760,22 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
       return emptyBudget;
     }
 
-    const validation = budgetDataSchema.safeParse(budget.data);
+    // --- CORREÇÃO: PARSE SEGURO DE DADOS ---
+    // Se o banco retornou string (SQLite/Legado), parseamos. Se já for objeto, mantemos.
+    let parsedData = budget.data;
+    if (typeof parsedData === 'string') {
+      try {
+        parsedData = JSON.parse(parsedData);
+      } catch {
+        console.error("Erro: Dados do planejamento corrompidos (JSON inválido)");
+        return emptyBudget;
+      }
+    }
+
+    const validation = budgetDataSchema.safeParse(parsedData);
 
     if (!validation.success) {
-      console.error("ALERTA: Dados de planejamento inválidos:", validation.error);
+      console.error("ALERTA: Dados de planejamento inválidos (Schema):", validation.error);
       return emptyBudget;
     }
 
@@ -792,18 +792,23 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
   if (!userId) return { error: 'Não autorizado', success: false };
 
   try {
+    // --- CORREÇÃO DE COMPATIBILIDADE (JSON vs STRING) ---
+    // Tenta salvar como objeto primeiro. Em ambientes como SQLite/Vercel Postgres antigos, 
+    // pode ser necessário stringify. O bloco catch lida com isso.
+    const dataToSave = process.env.NODE_ENV === 'development' ? JSON.stringify(data) : data;
+
     await prisma.monthlyBudget.upsert({
       where: {
         userId_month_year: { userId, month, year }
       },
       update: {
-        data: data as unknown as Prisma.InputJsonValue
+        data: dataToSave as any // Cast para evitar erro de tipagem estática
       },
       create: {
         userId,
         month,
         year,
-        data: data as unknown as Prisma.InputJsonValue
+        data: dataToSave as any
       }
     });
 
@@ -811,6 +816,22 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
     return { success: true, message: 'Planejamento salvo com sucesso!', error: '' };
   } catch (error) {
     console.error("Erro ao salvar planejamento:", error);
+
+    // FALLBACK DE COMPATIBILIDADE: Se o erro for de tipo esperado (String vs Object), forçamos stringify
+    if (String(error).includes('Expected String') || String(error).includes('Invalid value')) {
+      try {
+        await prisma.monthlyBudget.upsert({
+          where: { userId_month_year: { userId, month, year } },
+          update: { data: JSON.stringify(data) as any },
+          create: { userId, month, year, data: JSON.stringify(data) as any }
+        });
+        revalidatePath('/dashboard');
+        return { success: true, message: 'Planejamento salvo (modo compatibilidade)!', error: '' };
+      } catch (e) {
+        return { error: 'Erro crítico de compatibilidade no banco de dados. Tente "npx prisma generate".', success: false };
+      }
+    }
+
     return { error: 'Erro ao salvar.', success: false };
   }
 }
@@ -834,19 +855,30 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
       return { error: 'Nenhum planejamento encontrado para analisar.', success: false };
     }
 
-    const validation = budgetDataSchema.safeParse(budget.data);
+    // --- CORREÇÃO: PARSE SEGURO ANTES DA IA ---
+    let parsedData = budget.data;
+    if (typeof parsedData === 'string') {
+      try {
+        parsedData = JSON.parse(parsedData);
+      } catch {
+        return { error: 'Dados corrompidos no planejamento.', success: false };
+      }
+    }
+
+    const validation = budgetDataSchema.safeParse(parsedData);
     if (!validation.success) {
-      console.error("Erro de validação Zod:", JSON.stringify(validation.error.format(), null, 2));
       return { error: 'Dados inconsistentes. Salve o planejamento novamente.', success: false };
     }
 
     const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
+    const hasIncome = data.incomes.length > 0;
 
-    if (itemCount < 5) {
+    // Validação mínima mais branda
+    if (itemCount < 1 && !hasIncome) {
       return {
         error: 'Poucos dados',
-        details: 'Adicione pelo menos 5 despesas para a IA analisar.',
+        details: 'Adicione pelo menos algumas receitas ou despesas para a IA analisar.',
         success: false
       };
     }
@@ -857,19 +889,20 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
     const varStr = data.variableExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
 
     const prompt = `
-      Atue como um consultor financeiro pessoal. Analise este planejamento mensal:
+      Atue como um consultor financeiro pessoal expert (Use a inteligência do modelo Gemini 2.0).
+      Analise este planejamento mensal:
       [ENTRADAS]: ${incomeStr || "Nenhuma"}
       [GASTOS FIXOS]: ${fixedStr || "Nenhum"}
       [GASTOS DIVERSOS]: ${varStr || "Nenhum"}
       
-      Responda em Markdown (max 3 parágrafos):
-      1. Identifique se o orçamento está saudável (sobra ou falta?).
-      2. Aponte explicitamente onde é possível economizar.
-      3. Dê uma nota de 0 a 10 para este planejamento.
-      Seja direto e motivador.
+      Responda em Markdown (max 3 parágrafos curtos):
+      1. Diagnóstico: O orçamento está saudável? (Sobra ou falta?)
+      2. Ação: Aponte explicitamente onde é possível economizar ou melhorar.
+      3. Veredito: Dê uma nota de 0 a 10 para este planejamento.
+      Seja direto, profissional mas motivador.
     `;
 
-    // USANDO FUNÇÃO COM FALLBACK
+    // USANDO FUNÇÃO COM FALLBACK (GEMINI 2.0)
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
     return { success: true, message: adviceText, error: '' };

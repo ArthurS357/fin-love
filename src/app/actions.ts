@@ -21,9 +21,14 @@ import {
   partnerSchema,
   spendingLimitSchema,
   passwordSchema,
-  budgetDataSchema,
-  BudgetData
+  budgetDataSchema
 } from '@/lib/schemas'
+
+// --- CORREÇÃO CRÍTICA PARA O BUILD ---
+// Importamos os tipos do schema e os re-exportamos para que
+// componentes do cliente (como PlanningTab) possam usá-los.
+import type { BudgetData, BudgetItem } from '@/lib/schemas';
+export type { BudgetData, BudgetItem };
 
 import { getUserId, JWT_SECRET } from '@/lib/auth';
 
@@ -35,9 +40,8 @@ type ActionState = {
 }
 
 // ==========================================
-// FUNÇÃO AUXILIAR: IA COM FALLBACK (ATUALIZADA)
+// FUNÇÃO AUXILIAR: IA COM FALLBACK (GEMINI 2.0)
 // ==========================================
-// Tenta múltiplos modelos, priorizando o Gemini 2.0 Flash (Experimental)
 async function generateSmartAdvice(apiKey: string, prompt: string) {
   const modelsToTry = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -53,14 +57,11 @@ async function generateSmartAdvice(apiKey: string, prompt: string) {
       console.warn(`[IA] Falha ao tentar modelo ${modelName}:`, error.message);
       lastError = error;
 
-      // Se o erro for de autenticação, não adianta tentar outros
       if (error.message?.includes('API key') || error.message?.includes('403')) {
         throw new Error('Chave de API inválida ou sem permissão.');
       }
     }
   }
-
-  // Se saiu do loop, todos falharam
   throw lastError;
 }
 

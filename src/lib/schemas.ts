@@ -33,12 +33,10 @@ export const transactionSchema = z.object({
   amount: z.coerce.number().min(0.01, "Valor deve ser maior que 0"),
   type: z.enum(['INCOME', 'EXPENSE', 'INVESTMENT']),
   category: z.string().min(1, "Categoria é obrigatória"),
-  date: z.string().optional(), // Recebe string do input date
-
-  // NOVOS CAMPOS PARA OTIMIZAÇÃO
-  paymentMethod: z.string().optional().default("DEBIT"), // CREDIT, DEBIT, PIX
+  date: z.string().optional(),
+  paymentMethod: z.string().optional().default("DEBIT"),
   installments: z.coerce.number().optional().default(1),
-  isRecurring: z.string().optional(), // Vem como 'on' ou 'true' do form
+  isRecurring: z.string().optional(),
   recurringDay: z.coerce.number().min(1).max(31).optional(),
 });
 
@@ -65,12 +63,14 @@ export const partnerSchema = z.object({
   email: z.string().email("Email inválido"),
 });
 
-// --- SCHEMAS DE PLANEJAMENTO ---
+// ==========================================
+// PLANEJAMENTO (BUDGET) SCHEMAS
+// ==========================================
 
 export const budgetItemSchema = z.object({
   id: z.string(),
   name: z.string(),
-  amount: z.coerce.number(), // 'coerce' garante que string "100" vire number 100
+  amount: z.coerce.number(),
 });
 
 export const budgetDataSchema = z.object({
@@ -79,5 +79,6 @@ export const budgetDataSchema = z.object({
   variableExpenses: z.array(budgetItemSchema),
 });
 
-// CORREÇÃO: Exportando o tipo com o nome exato que o actions.ts espera
+// --- TIPOS EXPORTADOS (Correção aqui) ---
+export type BudgetItem = z.infer<typeof budgetItemSchema>; // Adicionado
 export type BudgetData = z.infer<typeof budgetDataSchema>;

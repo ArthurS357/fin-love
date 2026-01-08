@@ -65,3 +65,20 @@ export const spendingLimitSchema = z.object({
 export const partnerSchema = z.object({
   email: z.string().email("Email inválido"),
 });
+
+// --- SCHEMAS DE PLANEJAMENTO ---
+
+export const budgetItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  amount: z.coerce.number(), // 'coerce' garante que string "100" vire number 100
+});
+
+export const budgetDataSchema = z.object({
+  incomes: z.array(budgetItemSchema),
+  fixedExpenses: z.array(budgetItemSchema),
+  variableExpenses: z.array(budgetItemSchema),
+});
+
+// Tipo inferido automaticamente (para usar no TypeScript)
+export type BudgetDataSchemaType = z.infer<typeof budgetDataSchema>;

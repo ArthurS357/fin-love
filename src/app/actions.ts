@@ -7,11 +7,11 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
-import { SignJWT } from 'jose' 
+import { SignJWT } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore, setDate } from 'date-fns'
-import { randomBytes } from 'crypto' // Necessário para gerar token de recuperação
-import { sendPasswordResetEmail } from '@/lib/mail' // Import da função de email que criamos
+import { randomBytes, randomUUID } from 'crypto' // randomUUID para parcelas
+import { sendPasswordResetEmail } from '@/lib/mail'
 
 import {
   registerSchema,
@@ -20,7 +20,8 @@ import {
   categorySchema,
   partnerSchema,
   spendingLimitSchema,
-  passwordSchema
+  passwordSchema,
+  budgetDataSchema // Importando schema de validação da planilha
 } from '@/lib/schemas'
 
 import { getUserId, JWT_SECRET } from '@/lib/auth';
@@ -54,9 +55,9 @@ export async function registerUser(prevState: any, formData: FormData): Promise<
     })
 
     const token = await new SignJWT({ sub: user.id })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('7d')
-        .sign(JWT_SECRET)
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('7d')
+      .sign(JWT_SECRET)
 
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
@@ -84,9 +85,9 @@ export async function loginUser(prevState: any, formData: FormData): Promise<Act
     }
 
     const token = await new SignJWT({ sub: user.id })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('7d')
-        .sign(JWT_SECRET)
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('7d')
+      .sign(JWT_SECRET)
 
     const cookieStore = await cookies()
     cookieStore.set('token', token, { httpOnly: true, path: '/' })
@@ -115,27 +116,30 @@ export async function addTransaction(formData: FormData) {
   const validation = transactionSchema.safeParse(rawData);
 
   if (!validation.success) {
-      return { error: validation.error.issues[0].message };
+    return { error: validation.error.issues[0].message };
   }
 
-  const { 
-    description, 
-    amount, 
-    type, 
-    category, 
-    date, 
-    paymentMethod, 
-    installments, 
-    isRecurring, 
-    recurringDay 
+  const {
+    description,
+    amount,
+    type,
+    category,
+    date,
+    paymentMethod,
+    installments,
+    isRecurring,
+    recurringDay
   } = validation.data;
 
   const baseDate = date ? new Date(date) : new Date();
 
   try {
-    // 1. Lógica de Parcelamento (Cartão de Crédito)
+    // 1. Lógica de Parcelamento (Cartão de Crédito) com GROUP ID
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
+
+      const installmentId = randomUUID(); // ID único para o grupo de parcelas
       const transactionsToCreate = [];
+
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
         transactionsToCreate.push({
@@ -148,11 +152,12 @@ export async function addTransaction(formData: FormData) {
           paymentMethod: 'CREDIT',
           installments,
           currentInstallment: i + 1,
-          isPaid: false 
+          isPaid: false,
+          installmentId // Vincula todas ao mesmo grupo
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
-    } 
+    }
     // 2. Lógica Padrão (À vista/Débito)
     else {
       await prisma.transaction.create({
@@ -164,7 +169,7 @@ export async function addTransaction(formData: FormData) {
           category,
           date: baseDate,
           paymentMethod: paymentMethod || 'DEBIT',
-          isPaid: paymentMethod !== 'CREDIT' 
+          isPaid: paymentMethod !== 'CREDIT'
         },
       })
     }
@@ -191,10 +196,10 @@ export async function addTransaction(formData: FormData) {
     }
 
     await checkBadgesAction()
-    
+
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
-    
+
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -214,16 +219,22 @@ export async function updateTransaction(formData: FormData) {
     return { error: validation.error.issues[0].message }
   }
 
+  // Segurança: Verificar propriedade
+  const existingTransaction = await prisma.transaction.findUnique({ where: { id } });
+  if (!existingTransaction || existingTransaction.userId !== userId) {
+    return { error: 'Não autorizado ou transação não encontrada.' };
+  }
+
   const { type, amount, description, category, date } = validation.data
 
   await prisma.transaction.update({
     where: { id },
-    data: { 
-        type: type as any, 
-        amount, 
-        description, 
-        category,
-        date: date ? new Date(date) : undefined
+    data: {
+      type: type as any,
+      amount,
+      description,
+      category,
+      date: date ? new Date(date) : undefined
     },
   })
 
@@ -235,23 +246,51 @@ export async function updateTransaction(formData: FormData) {
 export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
-  
+
+  // Segurança: Verificar propriedade
+  const transaction = await prisma.transaction.findUnique({ where: { id } });
+  if (!transaction || transaction.userId !== userId) {
+    return { error: 'Não autorizado.' };
+  }
+
   await prisma.transaction.delete({ where: { id } })
-  
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true }
 }
 
+// NOVA FUNÇÃO: Deletar grupo de parcelas
+export async function deleteInstallmentGroupAction(installmentId: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  try {
+    // Deleta onde o ID do grupo bate E o usuário é o dono (segurança implícita no deleteMany)
+    await prisma.transaction.deleteMany({
+      where: {
+        installmentId: installmentId,
+        userId: userId
+      }
+    });
+
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Todas as parcelas foram removidas.' };
+  } catch (error) {
+    return { error: 'Erro ao excluir parcelas.' };
+  }
+}
+
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   const userId = await getUserId();
   if (!userId) return;
-  
+
   await prisma.transaction.update({
     where: { id, userId },
     data: { isPaid: !currentStatus }
   });
-  
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
 }
@@ -276,7 +315,7 @@ export async function getFinancialSummaryAction() {
     where: { userId: { in: userIds }, type: 'INCOME' },
     _sum: { amount: true }
   });
-  
+
   const totalExpense = await prisma.transaction.aggregate({
     where: { userId: { in: userIds }, type: 'EXPENSE' },
     _sum: { amount: true }
@@ -312,11 +351,11 @@ export async function linkPartnerAction(formData: FormData) {
     ])
 
     await checkBadgesAction()
-    
+
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidateTag(`dashboard:${partner.id}`, 'max');
     revalidatePath('/dashboard')
-    
+
     return { success: true, message: 'Conectado!' }
   } catch { return { error: 'Erro ao conectar.' } }
 }
@@ -334,11 +373,11 @@ export async function unlinkPartnerAction() {
       prisma.user.update({ where: { id: userId }, data: { partnerId: null } }),
       prisma.user.update({ where: { id: me.partnerId }, data: { partnerId: null } })
     ])
-    
+
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidateTag(`dashboard:${partnerId}`, 'max');
     revalidatePath('/dashboard')
-    
+
     return { success: true, message: 'Desconectado.' }
   } catch { return { error: 'Erro.' } }
 }
@@ -351,7 +390,7 @@ export async function updateSpendingLimitAction(formData: FormData) {
   if (!validation.success) return { error: validation.error.issues[0].message }
 
   await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
-  
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Limite atualizado!' }
@@ -371,7 +410,7 @@ export async function addSavingsAction(formData: FormData) {
   })
 
   await checkBadgesAction()
-  
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard')
   return { success: true, message: 'Valor guardado!' }
@@ -387,7 +426,7 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   if (!me) return { error: 'Usuário não encontrado' }
 
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
-  
+
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
     revalidateTag(`dashboard:${me.partnerId}`, 'max');
@@ -407,9 +446,9 @@ export async function generateFinancialAdviceAction() {
   if (!userId) return { error: 'Auth error' }
 
   try {
-    const user = await prisma.user.findUnique({ 
-      where: { id: userId }, 
-      include: { partner: true } 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { partner: true }
     })
 
     if (!user) return { error: 'Usuário não encontrado.' }
@@ -419,15 +458,15 @@ export async function generateFinancialAdviceAction() {
       return { success: true, message: user.lastAdvice };
     }
 
-    const thirtyDaysAgo = new Date(); 
+    const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const transactions = await prisma.transaction.findMany({
-      where: { 
-        userId: { in: [userId, user.partnerId || ''].filter(Boolean) }, 
-        date: { gte: thirtyDaysAgo } 
+      where: {
+        userId: { in: [userId, user.partnerId || ''].filter(Boolean) },
+        date: { gte: thirtyDaysAgo }
       },
-      orderBy: { date: 'desc' }, 
+      orderBy: { date: 'desc' },
       take: 50
     })
 
@@ -444,16 +483,16 @@ export async function generateFinancialAdviceAction() {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { 
+      data: {
         lastAdvice: adviceText,
         lastAdviceDate: new Date()
       }
     });
 
     return { success: true, message: adviceText }
-  } catch (error) { 
+  } catch (error) {
     console.error(error);
-    return { error: 'IA indisponível no momento.' } 
+    return { error: 'IA indisponível no momento.' }
   }
 }
 
@@ -481,35 +520,35 @@ export async function createCategoryAction(formData: FormData) {
 
   const { name, color, icon, type } = validation.data;
   const finalIcon = icon || 'Tag';
-  const finalType = type || 'EXPENSE'; 
+  const finalType = type || 'EXPENSE';
 
   try {
-    await prisma.category.create({ 
-        data: { 
-            userId, 
-            name, 
-            color, 
-            icon: finalIcon,
-            type: finalType 
-        } 
+    await prisma.category.create({
+      data: {
+        userId,
+        name,
+        color,
+        icon: finalIcon,
+        type: finalType
+      }
     });
     await checkBadgesAction()
-    
+
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
     return { success: true, message: 'Categoria criada!' };
-  } catch (err) { 
+  } catch (err) {
     console.error(err);
-    return { error: 'Erro ao criar categoria.' }; 
+    return { error: 'Erro ao criar categoria.' };
   }
 }
 
 export async function deleteCategoryAction(id: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
-  
+
   await prisma.category.delete({ where: { id, userId } });
-  
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
   return { success: true };
@@ -540,7 +579,7 @@ export async function checkRecurringTransactionsAction() {
       let safetyCounter = 0;
 
       while (
-        (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) && 
+        (isBefore(runDate, now) || runDate.getTime() <= now.getTime()) &&
         safetyCounter < MAX_MONTHS_LOOKAHEAD
       ) {
         newTransactions.push({
@@ -551,19 +590,19 @@ export async function checkRecurringTransactionsAction() {
           category: rec.category,
           date: new Date(runDate)
         });
-        
+
         runDate = addMonths(runDate, 1);
         if (rec.dayOfMonth) {
-            runDate = setDate(runDate, rec.dayOfMonth); 
+          runDate = setDate(runDate, rec.dayOfMonth);
         }
-        
+
         safetyCounter++;
       }
-      
+
       updates.push(
-        prisma.recurringTransaction.update({ 
-          where: { id: rec.id }, 
-          data: { nextRun: runDate } 
+        prisma.recurringTransaction.update({
+          where: { id: rec.id },
+          data: { nextRun: runDate }
         })
       );
     }
@@ -613,20 +652,20 @@ export async function checkBadgesAction() {
     if (user.partnerId && !earnedCodes.includes('COUPLE_GOALS')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'COUPLE_GOALS')!);
     }
-    
+
     const hasInvestment = user.transactions.some(t => t.type === 'INVESTMENT');
     if (hasInvestment && !earnedCodes.includes('SAVER_1')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
-    
+
     const totalSaved = user.transactions
       .filter(t => t.type === 'INVESTMENT')
       .reduce((acc, t) => acc + Number(t.amount), 0);
-      
+
     if (totalSaved >= 1000 && !earnedCodes.includes('BIG_SAVER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
     }
-    
+
     if (user.categories.length > 0 && !earnedCodes.includes('CAT_MASTER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'CAT_MASTER')!);
     }
@@ -650,7 +689,7 @@ export async function getBadgesAction() {
 }
 
 // ==========================================
-// 9. PLANEJAMENTO MENSAL (BUDGET + IA)
+// 9. PLANEJAMENTO MENSAL (BUDGET + IA + ZOD)
 // ==========================================
 
 export type BudgetItem = {
@@ -665,17 +704,15 @@ export type BudgetData = {
   variableExpenses: BudgetItem[];
 };
 
-// Buscar planejamento (próprio ou do parceiro)
+// Buscar planejamento (próprio ou do parceiro) com VALIDAÇÃO ZOD
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
   const currentUserId = await getUserId();
   if (!currentUserId) return null;
 
-  // Define qual ID buscar: se foi passado um alvo e ele for parceiro, usa ele.
   let userIdToFetch = currentUserId;
 
   if (targetUserId && targetUserId !== currentUserId) {
     const me = await prisma.user.findUnique({ where: { id: currentUserId } });
-    // Segurança: Verificar se o target é realmente o parceiro
     if (me?.partnerId === targetUserId) {
       userIdToFetch = targetUserId;
     } else {
@@ -690,15 +727,22 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
       }
     });
 
+    const emptyBudget: BudgetData = { incomes: [], fixedExpenses: [], variableExpenses: [] };
+
     if (!budget || !budget.data) {
-      return {
-        incomes: [],
-        fixedExpenses: [],
-        variableExpenses: []
-      } as BudgetData;
+      return emptyBudget;
     }
 
-    return budget.data as BudgetData;
+    // --- PROTEÇÃO CONTRA DADOS CORROMPIDOS ---
+    const validation = budgetDataSchema.safeParse(budget.data);
+
+    if (!validation.success) {
+      console.error("ALERTA: Dados de planejamento inválidos:", validation.error);
+      return emptyBudget;
+    }
+
+    return validation.data as BudgetData;
+
   } catch (error) {
     console.error("Erro ao buscar planejamento:", error);
     return null;
@@ -711,7 +755,6 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
   if (!userId) return { error: 'Não autorizado' };
 
   try {
-    // Upsert garante que cria se não existe ou atualiza se já existe
     await prisma.monthlyBudget.upsert({
       where: {
         userId_month_year: { userId, month, year }
@@ -749,18 +792,20 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
       return { error: 'Nenhum planejamento encontrado para analisar.' };
     }
 
-    const data = budget.data as BudgetData;
+    // Validação também aqui por segurança
+    const validation = budgetDataSchema.safeParse(budget.data);
+    if (!validation.success) return { error: 'Dados inválidos para análise.' };
+
+    const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
 
-    // REGRA DE ECONOMIA: Só ativa se tiver pelo menos 5 itens de gasto
     if (itemCount < 5) {
-      return { 
-        error: 'Recurso bloqueado', 
-        details: 'Para acionar a Inteligência Artificial, adicione pelo menos 5 itens de despesas (fixas ou diversas) no seu planejamento.' 
+      return {
+        error: 'Recurso bloqueado',
+        details: 'Para acionar a Inteligência Artificial, adicione pelo menos 5 itens de despesas (fixas ou diversas) no seu planejamento.'
       };
     }
 
-    // Prepara o prompt
     const incomeStr = data.incomes.map(i => `${i.name}: R$${i.amount}`).join(', ');
     const fixedStr = data.fixedExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
     const varStr = data.variableExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
@@ -780,7 +825,7 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
+
     const result = await model.generateContent(prompt);
     const adviceText = result.response.text();
 
@@ -834,11 +879,10 @@ export async function deleteAccountAction() {
 
   try {
     await prisma.user.delete({ where: { id: userId } });
-    
-    // Logout forçado
+
     const cookieStore = await cookies();
     cookieStore.delete('token');
-    
+
     return { success: true };
   } catch (error) {
     return { error: 'Erro ao excluir conta.' };
@@ -848,21 +892,18 @@ export async function deleteAccountAction() {
 // Esqueci minha senha (Gerar Token e Enviar Email)
 export async function forgotPasswordAction(formData: FormData) {
   const email = formData.get('email') as string;
-  
-  const user = await prisma.user.findUnique({ where: { email } });
-  // Retorna sucesso sempre para não vazar emails cadastrados (Security through obscurity)
-  if (!user) return { success: true }; 
 
-  // Gerar Token
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return { success: true };
+
   const token = randomBytes(32).toString('hex');
-  const expiry = new Date(Date.now() + 3600000); // 1 hora de validade
+  const expiry = new Date(Date.now() + 3600000); // 1 hora
 
   await prisma.user.update({
     where: { id: user.id },
     data: { resetToken: token, resetTokenExpiry: expiry }
   });
 
-  // Enviar Email
   await sendPasswordResetEmail(email, token);
 
   return { success: true };
@@ -876,7 +917,7 @@ export async function resetPasswordAction(token: string, formData: FormData) {
   const user = await prisma.user.findFirst({
     where: {
       resetToken: token,
-      resetTokenExpiry: { gt: new Date() } // Token ainda válido
+      resetTokenExpiry: { gt: new Date() }
     }
   });
 
@@ -886,7 +927,7 @@ export async function resetPasswordAction(token: string, formData: FormData) {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { 
+    data: {
       password: hashedPassword,
       resetToken: null,
       resetTokenExpiry: null

@@ -56,18 +56,21 @@ model Transaction {
   currentInstallment Int?
   isPaid             Boolean  @default(true)
   
+  // --- NOVO CAMPO ---
+  installmentId      String?  // Identificador único do grupo de parcelas
+  
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  // --- OTIMIZAÇÃO CRÍTICA (Índices) ---
-  // 1. Busca do Dashboard (Mês/Ano)
+  // Índices existentes...
   @@index([userId, date]) 
-  
-  // 2. Busca de Resumo Financeiro (Somas por tipo)
   @@index([userId, type])
+  
+  // --- NOVO ÍNDICE ---
+  @@index([installmentId]) // Para deletar/buscar todas as parcelas rápido
 }
 
 model RecurringTransaction {

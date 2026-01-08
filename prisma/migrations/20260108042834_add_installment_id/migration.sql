@@ -29,6 +29,7 @@ CREATE TABLE "Transaction" (
     "installments" INTEGER,
     "currentInstallment" INTEGER,
     "isPaid" BOOLEAN NOT NULL DEFAULT true,
+    "installmentId" TEXT,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -107,6 +108,9 @@ CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date");
 
 -- CreateIndex
 CREATE INDEX "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
+
+-- CreateIndex
+CREATE INDEX "Transaction_installmentId_idx" ON "Transaction"("installmentId");
 
 -- CreateIndex
 CREATE INDEX "RecurringTransaction_active_nextRun_idx" ON "RecurringTransaction"("active", "nextRun");

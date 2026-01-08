@@ -6,12 +6,13 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
-  Eye, EyeOff
+  Eye, EyeOff, FileSpreadsheet
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton'; // Importando componente existente
 
 // --- TIPAGEM ---
 export interface Transaction {
@@ -26,6 +27,7 @@ export interface Transaction {
   installments?: number | null;
   currentInstallment?: number | null;
   isPaid: boolean;
+  installmentId?: string | null; // Adicionado suporte visual (embora não usado diretamente aqui)
 }
 
 interface DashboardProps {
@@ -40,20 +42,53 @@ interface DashboardProps {
   selectedDate: { month: number; year: number; };
 }
 
+// --- UTILS MATEMÁTICOS (Correção de Precisão) ---
+const toCents = (amount: number) => Math.round(amount * 100);
+const fromCents = (cents: number) => cents / 100;
+
+const safeAdd = (a: number, b: number) => fromCents(toCents(a) + toCents(b));
+// const safeSub = (a: number, b: number) => fromCents(toCents(a) - toCents(b)); // Se precisar subtrair
+
+// --- COMPONENTES DE LOADING (SKELETONS) ---
+const TabSkeleton = () => (
+  <div className="space-y-6 animate-pulse">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Skeleton className="h-40 rounded-3xl bg-white/5" />
+      <Skeleton className="h-40 rounded-3xl bg-white/5" />
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <Skeleton className="h-64 md:col-span-2 rounded-3xl bg-white/5" />
+      <Skeleton className="h-64 rounded-3xl bg-white/5" />
+    </div>
+  </div>
+);
+
+const ListSkeleton = () => (
+  <div className="space-y-4">
+    <Skeleton className="h-14 w-full rounded-2xl bg-white/5" />
+    <Skeleton className="h-14 w-full rounded-2xl bg-white/5" />
+    <Skeleton className="h-14 w-full rounded-2xl bg-white/5" />
+    <Skeleton className="h-14 w-full rounded-2xl bg-white/5" />
+  </div>
+);
+
 // --- LAZY LOADING ---
 import HomeTab from './tabs/HomeTab';
 
 const HistoryTab = dynamic(() => import('./tabs/HistoryTab'), {
-  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando histórico...</div>
+  loading: () => <ListSkeleton />
 });
 const PartnerTab = dynamic(() => import('./tabs/PartnerTab'), {
-  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando conexão...</div>
+  loading: () => <TabSkeleton />
 });
 const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), {
-  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando metas...</div>
+  loading: () => <TabSkeleton />
 });
 const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
-  loading: () => <div className="p-12 text-center text-gray-500 animate-pulse">Carregando perfil...</div>
+  loading: () => <TabSkeleton />
+});
+const PlanningTab = dynamic(() => import('./tabs/PlanningTab'), {
+  loading: () => <ListSkeleton />
 });
 
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
@@ -69,7 +104,7 @@ export default function Dashboard({
   const searchParams = useSearchParams();
 
   // Estado da aba via URL
-  const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile') || 'home';
+  const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile' | 'planning') || 'home';
 
   const [privacyMode, setPrivacyMode] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -116,10 +151,20 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
+  // --- CORREÇÃO MATEMÁTICA APLICADA ---
   const calculateStats = (txs: Transaction[]) => {
-    const income = txs.filter(t => t.type === 'INCOME').reduce((acc, t) => acc + Number(t.amount), 0);
-    const expense = txs.filter(t => t.type === 'EXPENSE').reduce((acc, t) => acc + Number(t.amount), 0);
-    return { income, expense, balance: income - expense };
+    const income = txs
+      .filter(t => t.type === 'INCOME')
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0); // Soma Segura
+
+    const expense = txs
+      .filter(t => t.type === 'EXPENSE')
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0); // Soma Segura
+
+    // Saldo: Entradas - Saídas (já seguros)
+    const balance = fromCents(toCents(income) - toCents(expense));
+
+    return { income, expense, balance };
   };
 
   const myTransactions = monthlyTransactions.filter(t => !partnerId || t.userId !== partnerId);
@@ -128,10 +173,11 @@ export default function Dashboard({
   const myStats = calculateStats(myTransactions);
   const partnerStats = calculateStats(partnerTransactions);
 
+  // Soma combinada segura
   const combinedStats = {
-    income: myStats.income + partnerStats.income,
-    expense: myStats.expense + partnerStats.expense,
-    balance: (myStats.income + partnerStats.income) - (myStats.expense + partnerStats.expense)
+    income: safeAdd(myStats.income, partnerStats.income),
+    expense: safeAdd(myStats.expense, partnerStats.expense),
+    balance: fromCents(toCents(myStats.balance) + toCents(partnerStats.balance))
   };
 
   const pieData = useMemo(() => {
@@ -139,7 +185,9 @@ export default function Dashboard({
     monthlyTransactions
       .filter(t => t.type === 'EXPENSE')
       .forEach(t => {
-        categories[t.category] = (categories[t.category] || 0) + Number(t.amount);
+        // Acumula usando centavos para evitar erros de soma
+        const currentVal = categories[t.category] || 0;
+        categories[t.category] = safeAdd(currentVal, Number(t.amount));
       });
     return Object.keys(categories).map((key) => ({ name: key, value: categories[key] }));
   }, [monthlyTransactions]);
@@ -149,12 +197,13 @@ export default function Dashboard({
     { name: 'Saídas', valor: combinedStats.expense },
   ];
 
+  // Handlers
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
   const handleEdit = (t: Transaction) => { setEditingTransaction(t); setIsModalOpen(true); };
   const handleDelete = async (id: string) => {
     startTransition(() => { deleteOptimisticTransaction(id); });
     toast.promise(deleteTransaction(id), {
-      loading: 'Excluindo...', success: 'Removido!', error: 'Erro.'
+      loading: 'Excluindo...', success: 'Removido!', error: 'Erro ao excluir.'
     });
   };
 
@@ -175,16 +224,18 @@ export default function Dashboard({
 
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => handleTabChange('home')} label="Início" icon={<Home size={18} />} />
+            {/* Adicionado Planning no Menu Desktop */}
+            <TabButton active={activeTab === 'planning'} onClick={() => handleTabChange('planning')} label="Planos" icon={<FileSpreadsheet size={18} />} />
             <TabButton active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => handleTabChange('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} label="Conexão" icon={<Heart size={18} />} />
           </nav>
 
           <div className="flex items-center gap-3 md:gap-4 z-50 relative">
-            <button onClick={() => setPrivacyMode(!privacyMode)} className="p-2 text-purple-300 hover:text-white transition rounded-full">
+            <button onClick={() => setPrivacyMode(!privacyMode)} className="p-2 text-purple-300 hover:text-white transition rounded-full hover:bg-white/5">
               {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
-            <button onClick={() => setIsAIModalOpen(true)} className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20">
+            <button onClick={() => setIsAIModalOpen(true)} className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95">
               <Sparkles size={14} /><span className="hidden md:inline">IA</span>
             </button>
             <button onClick={handleOpenNew} className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
@@ -193,7 +244,7 @@ export default function Dashboard({
 
             {/* MENU SUSPENSO / PERFIL */}
             <div className="relative">
-              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white' : 'text-gray-300 border-transparent hover:bg-white/5'}`}>
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'text-gray-300 border-transparent hover:bg-white/5'}`}>
                 <Menu size={24} />
               </button>
 
@@ -206,7 +257,6 @@ export default function Dashboard({
                       <p className="text-sm font-bold text-white truncate">{userName}</p>
                     </div>
                     <div className="p-2 space-y-1">
-                      {/* LINK DO PERFIL REPARADO AQUI */}
                       <button
                         onClick={() => { handleTabChange('profile'); setIsMenuOpen(false); }}
                         className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
@@ -218,7 +268,7 @@ export default function Dashboard({
 
                       <button
                         onClick={async () => { await logoutUser(); setIsMenuOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
                       >
                         <LogOut size={16} /> Sair
                       </button>
@@ -232,7 +282,7 @@ export default function Dashboard({
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
-        {activeTab !== 'partner' && activeTab !== 'profile' && (
+        {activeTab !== 'partner' && activeTab !== 'profile' && activeTab !== 'planning' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
@@ -243,6 +293,24 @@ export default function Dashboard({
               <p className="text-gray-400 text-sm hidden md:block">
                 {activeTab === 'home' ? 'Aqui está o resumo financeiro de vocês.' : 'Gestão financeira.'}
               </p>
+            </div>
+            <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
+              <button onClick={() => handleChangeMonth(-1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronLeft size={18} /></button>
+              <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
+                <Calendar size={14} className="text-purple-400" />
+                <span className="text-sm font-semibold capitalize text-gray-200">{format(currentDate, 'MMM yyyy', { locale: ptBR })}</span>
+              </div>
+              <button onClick={() => handleChangeMonth(1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronRight size={18} /></button>
+            </div>
+          </div>
+        )}
+
+        {/* HEADER ESPECÍFICO PARA PLANEJAMENTO */}
+        {activeTab === 'planning' && (
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Planejamento Mensal</h1>
+              <p className="text-gray-400 text-sm hidden md:block">Organize suas contas antes de gastar.</p>
             </div>
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
               <button onClick={() => handleChangeMonth(-1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronLeft size={18} /></button>
@@ -270,6 +338,14 @@ export default function Dashboard({
               partnerId={partnerId}
             />
           )}
+          {activeTab === 'planning' && (
+            <PlanningTab
+              month={selectedDate.month}
+              year={selectedDate.year}
+              partnerId={partnerId}
+              partnerName={partner?.name || 'Parceiro'}
+            />
+          )}
           {activeTab === 'goals' && (
             <GoalsTab income={combinedStats.income} expense={combinedStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
           )}
@@ -294,15 +370,18 @@ export default function Dashboard({
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
       {/* MOBILE NAV */}
+      {/* Ajuste de z-index para 40 para não sobrepor modais (z-50) */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => handleTabChange('home')} icon={<Home size={22} />} label="Início" />
-          <NavIcon active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} icon={<Target size={22} />} label="Metas" />
+          <NavIcon active={activeTab === 'planning'} onClick={() => handleTabChange('planning')} icon={<FileSpreadsheet size={22} />} label="Planos" />
+
           <div className="relative -top-8 mx-0.5">
             <button onClick={handleOpenNew} className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group">
               <Plus size={28} strokeWidth={2.5} className="group-hover:rotate-90 transition-transform" />
             </button>
           </div>
+
           <NavIcon active={activeTab === 'history'} onClick={() => handleTabChange('history')} icon={<Clock size={22} />} label="Extrato" />
           <NavIcon active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} icon={<Heart size={22} />} label="Nós" />
         </nav>
@@ -311,6 +390,7 @@ export default function Dashboard({
   );
 }
 
+// Subcomponentes utilitários
 function TabButton({ active, onClick, label, icon }: any) {
   return (
     <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>

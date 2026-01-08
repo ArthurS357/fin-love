@@ -6,13 +6,13 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
-  Eye, EyeOff, FileSpreadsheet
-} from 'lucide-react';
+  Eye, EyeOff
+} from 'lucide-react'; // FileSpreadsheet removido pois não é mais usado no menu
 import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { deleteTransaction, logoutUser } from '@/app/actions';
 import { toast } from 'sonner';
-import { Skeleton } from '@/components/ui/skeleton'; // Importando componente existente
+import { Skeleton } from '@/components/ui/skeleton';
 
 // --- TIPAGEM ---
 export interface Transaction {
@@ -27,7 +27,7 @@ export interface Transaction {
   installments?: number | null;
   currentInstallment?: number | null;
   isPaid: boolean;
-  installmentId?: string | null; // Adicionado suporte visual (embora não usado diretamente aqui)
+  installmentId?: string | null;
 }
 
 interface DashboardProps {
@@ -42,12 +42,11 @@ interface DashboardProps {
   selectedDate: { month: number; year: number; };
 }
 
-// --- UTILS MATEMÁTICOS (Correção de Precisão) ---
+// --- UTILS MATEMÁTICOS ---
 const toCents = (amount: number) => Math.round(amount * 100);
 const fromCents = (cents: number) => cents / 100;
 
 const safeAdd = (a: number, b: number) => fromCents(toCents(a) + toCents(b));
-// const safeSub = (a: number, b: number) => fromCents(toCents(a) - toCents(b)); // Se precisar subtrair
 
 // --- COMPONENTES DE LOADING (SKELETONS) ---
 const TabSkeleton = () => (
@@ -87,9 +86,7 @@ const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), {
 const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), {
   loading: () => <TabSkeleton />
 });
-const PlanningTab = dynamic(() => import('./tabs/PlanningTab'), {
-  loading: () => <ListSkeleton />
-});
+// PlanningTab removido daqui pois agora vive apenas dentro de HomeTab
 
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
@@ -103,8 +100,8 @@ export default function Dashboard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Estado da aba via URL
-  const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile' | 'planning') || 'home';
+  // Estado da aba via URL (removido 'planning' das opções diretas)
+  const activeTab = (searchParams.get('tab') as 'home' | 'history' | 'partner' | 'goals' | 'profile') || 'home';
 
   const [privacyMode, setPrivacyMode] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -151,17 +148,15 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
-  // --- CORREÇÃO MATEMÁTICA APLICADA ---
   const calculateStats = (txs: Transaction[]) => {
     const income = txs
       .filter(t => t.type === 'INCOME')
-      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0); // Soma Segura
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
     const expense = txs
       .filter(t => t.type === 'EXPENSE')
-      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0); // Soma Segura
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
-    // Saldo: Entradas - Saídas (já seguros)
     const balance = fromCents(toCents(income) - toCents(expense));
 
     return { income, expense, balance };
@@ -173,7 +168,6 @@ export default function Dashboard({
   const myStats = calculateStats(myTransactions);
   const partnerStats = calculateStats(partnerTransactions);
 
-  // Soma combinada segura
   const combinedStats = {
     income: safeAdd(myStats.income, partnerStats.income),
     expense: safeAdd(myStats.expense, partnerStats.expense),
@@ -185,7 +179,6 @@ export default function Dashboard({
     monthlyTransactions
       .filter(t => t.type === 'EXPENSE')
       .forEach(t => {
-        // Acumula usando centavos para evitar erros de soma
         const currentVal = categories[t.category] || 0;
         categories[t.category] = safeAdd(currentVal, Number(t.amount));
       });
@@ -224,8 +217,7 @@ export default function Dashboard({
 
           <nav className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-xl items-center gap-1 z-40">
             <TabButton active={activeTab === 'home'} onClick={() => handleTabChange('home')} label="Início" icon={<Home size={18} />} />
-            {/* Adicionado Planning no Menu Desktop */}
-            <TabButton active={activeTab === 'planning'} onClick={() => handleTabChange('planning')} label="Planos" icon={<FileSpreadsheet size={18} />} />
+            {/* Planning removido daqui */}
             <TabButton active={activeTab === 'goals'} onClick={() => handleTabChange('goals')} label="Metas" icon={<Target size={18} />} />
             <TabButton active={activeTab === 'history'} onClick={() => handleTabChange('history')} label="Extrato" icon={<Clock size={18} />} />
             <TabButton active={activeTab === 'partner'} onClick={() => handleTabChange('partner')} label="Conexão" icon={<Heart size={18} />} />
@@ -282,7 +274,7 @@ export default function Dashboard({
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8 mt-2 relative z-10 pb-32 md:pb-10">
-        {activeTab !== 'partner' && activeTab !== 'profile' && activeTab !== 'planning' && (
+        {activeTab !== 'partner' && activeTab !== 'profile' && (
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">
@@ -293,24 +285,6 @@ export default function Dashboard({
               <p className="text-gray-400 text-sm hidden md:block">
                 {activeTab === 'home' ? 'Aqui está o resumo financeiro de vocês.' : 'Gestão financeira.'}
               </p>
-            </div>
-            <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
-              <button onClick={() => handleChangeMonth(-1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronLeft size={18} /></button>
-              <div className="px-4 py-1 flex items-center gap-2 min-w-[140px] justify-center border-x border-white/5">
-                <Calendar size={14} className="text-purple-400" />
-                <span className="text-sm font-semibold capitalize text-gray-200">{format(currentDate, 'MMM yyyy', { locale: ptBR })}</span>
-              </div>
-              <button onClick={() => handleChangeMonth(1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronRight size={18} /></button>
-            </div>
-          </div>
-        )}
-
-        {/* HEADER ESPECÍFICO PARA PLANEJAMENTO */}
-        {activeTab === 'planning' && (
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1">Planejamento Mensal</h1>
-              <p className="text-gray-400 text-sm hidden md:block">Organize suas contas antes de gastar.</p>
             </div>
             <div className="flex items-center bg-[#1f1630] border border-white/5 rounded-full p-1 shadow-lg">
               <button onClick={() => handleChangeMonth(-1)} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white"><ChevronLeft size={18} /></button>
@@ -338,14 +312,7 @@ export default function Dashboard({
               partnerId={partnerId}
             />
           )}
-          {activeTab === 'planning' && (
-            <PlanningTab
-              month={selectedDate.month}
-              year={selectedDate.year}
-              partnerId={partnerId}
-              partnerName={partner?.name || 'Parceiro'}
-            />
-          )}
+          {/* Aba Planning removida daqui, pois já está dentro de HomeTab */}
           {activeTab === 'goals' && (
             <GoalsTab income={combinedStats.income} expense={combinedStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
           )}
@@ -370,11 +337,10 @@ export default function Dashboard({
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
 
       {/* MOBILE NAV */}
-      {/* Ajuste de z-index para 40 para não sobrepor modais (z-50) */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">
           <NavIcon active={activeTab === 'home'} onClick={() => handleTabChange('home')} icon={<Home size={22} />} label="Início" />
-          <NavIcon active={activeTab === 'planning'} onClick={() => handleTabChange('planning')} icon={<FileSpreadsheet size={22} />} label="Planos" />
+          {/* Botão Planos removido do Mobile */}
 
           <div className="relative -top-8 mx-0.5">
             <button onClick={handleOpenNew} className="bg-gradient-to-tr from-pink-600 to-purple-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-[0_8px_25px_rgba(236,72,153,0.4)] border-4 border-[#130b20] active:scale-90 transition-all duration-300 group">

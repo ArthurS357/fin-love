@@ -322,17 +322,20 @@ export async function getFinancialSummaryAction() {
   const userIds = [userId];
   if (user?.partnerId) userIds.push(user.partnerId);
 
-  const totalIncome = await prisma.transaction.aggregate({
-    where: { userId: { in: userIds }, type: 'INCOME' },
+  // Agregação correta de todos os tipos
+  const summary = await prisma.transaction.groupBy({
+    by: ['type'],
+    where: { userId: { in: userIds } },
     _sum: { amount: true }
   });
 
-  const totalExpense = await prisma.transaction.aggregate({
-    where: { userId: { in: userIds }, type: 'EXPENSE' },
-    _sum: { amount: true }
-  });
+  const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
+  const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
+  const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
 
-  const accumulatedBalance = (Number(totalIncome._sum.amount) || 0) - (Number(totalExpense._sum.amount) || 0);
+  // Correção: Subtrair também os investimentos para refletir o "Saldo Disponível" real
+  const accumulatedBalance = totalIncome - totalExpense - totalInvested;
+  
   return { accumulatedBalance };
 }
 

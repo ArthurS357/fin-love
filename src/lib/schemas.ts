@@ -34,7 +34,7 @@ export const transactionSchema = z.object({
   type: z.enum(['INCOME', 'EXPENSE', 'INVESTMENT']),
   category: z.string().min(1, "Categoria é obrigatória"),
   date: z.string().optional(), // Recebe string do input date
-  
+
   // NOVOS CAMPOS PARA OTIMIZAÇÃO
   paymentMethod: z.string().optional().default("DEBIT"), // CREDIT, DEBIT, PIX
   installments: z.coerce.number().optional().default(1),
@@ -49,8 +49,7 @@ export const transactionSchema = z.object({
 export const categorySchema = z.object({
   name: z.string().min(1, "Nome da categoria é obrigatório"),
   icon: z.string().optional(),
-  // O CAMPO QUE FALTAVA:
-  color: z.string().optional(), 
+  color: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']).optional(),
 });
 
@@ -80,5 +79,5 @@ export const budgetDataSchema = z.object({
   variableExpenses: z.array(budgetItemSchema),
 });
 
-// Tipo inferido automaticamente (para usar no TypeScript)
-export type BudgetDataSchemaType = z.infer<typeof budgetDataSchema>;
+// CORREÇÃO: Exportando o tipo com o nome exato que o actions.ts espera
+export type BudgetData = z.infer<typeof budgetDataSchema>;

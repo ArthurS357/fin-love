@@ -137,15 +137,25 @@ export async function addTransaction(formData: FormData) {
     // 1. Lógica de Parcelamento (Cartão de Crédito) com GROUP ID
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
 
-      const installmentId = randomUUID(); // ID único para o grupo de parcelas
+      const installmentId = randomUUID(); 
       const transactionsToCreate = [];
+      
+      // CÁLCULO DE CENTAVOS
+      const totalCents = Math.round(amount * 100);
+      const installmentValueCents = Math.floor(totalCents / installments);
+      const remainderCents = totalCents % installments;
 
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
+        
+        // Se for a última parcela, soma o resto (os centavos que sobraram)
+        const isLast = i === installments - 1;
+        const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
+
         transactionsToCreate.push({
           userId,
           description: `${description} (${i + 1}/${installments})`,
-          amount: amount / installments,
+          amount: currentAmount, // Valor corrigido
           type,
           category,
           date: futureDate,
@@ -153,11 +163,12 @@ export async function addTransaction(formData: FormData) {
           installments,
           currentInstallment: i + 1,
           isPaid: false,
-          installmentId // Vincula todas ao mesmo grupo
+          installmentId 
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
     }
+
     // 2. Lógica Padrão (À vista/Débito)
     else {
       await prisma.transaction.create({

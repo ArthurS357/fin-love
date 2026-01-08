@@ -49,7 +49,8 @@ export default function Login() {
               <input 
                 name="password" 
                 type={showPassword ? "text" : "password"} 
-                required 
+                required
+                autoComplete="current-password" // Adicionar 
                 className="w-full bg-[#130b20] border border-white/10 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition pr-10" 
                 placeholder="******"
               />

@@ -10,7 +10,7 @@ import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore, setDate } from 'date-fns'
-import { randomBytes, randomUUID } from 'crypto' // randomUUID para parcelas
+import { randomBytes, randomUUID } from 'crypto'
 import { sendPasswordResetEmail } from '@/lib/mail'
 
 import {
@@ -21,7 +21,7 @@ import {
   partnerSchema,
   spendingLimitSchema,
   passwordSchema,
-  budgetDataSchema // Importando schema de validação da planilha
+  budgetDataSchema
 } from '@/lib/schemas'
 
 import { getUserId, JWT_SECRET } from '@/lib/auth';
@@ -29,6 +29,39 @@ import { getUserId, JWT_SECRET } from '@/lib/auth';
 type ActionState = {
   success: boolean
   error: string
+  message?: string
+  details?: string
+}
+
+// ==========================================
+// FUNÇÃO AUXILIAR: IA COM FALLBACK
+// ==========================================
+// Tenta múltiplos modelos caso o principal falhe (404, sobrecarga, etc)
+async function generateSmartAdvice(apiKey: string, prompt: string) {
+  const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  let lastError;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (error: any) {
+      console.warn(`[IA] Falha ao tentar modelo ${modelName}:`, error.message);
+      lastError = error;
+
+      // Se o erro for de autenticação (API Key inválida), não adianta tentar outros
+      if (error.message?.includes('API key') || error.message?.includes('403')) {
+        throw new Error('Chave de API inválida ou sem permissão.');
+      }
+      // Se não for erro de chave, continua para o próximo modelo do loop
+    }
+  }
+
+  // Se saiu do loop, todos falharam
+  throw lastError;
 }
 
 // ==========================================
@@ -137,25 +170,23 @@ export async function addTransaction(formData: FormData) {
     // 1. Lógica de Parcelamento (Cartão de Crédito) com GROUP ID
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
 
-      const installmentId = randomUUID(); 
+      const installmentId = randomUUID();
       const transactionsToCreate = [];
-      
-      // CÁLCULO DE CENTAVOS
+
       const totalCents = Math.round(amount * 100);
       const installmentValueCents = Math.floor(totalCents / installments);
       const remainderCents = totalCents % installments;
 
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
-        
-        // Se for a última parcela, soma o resto (os centavos que sobraram)
+
         const isLast = i === installments - 1;
         const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
 
         transactionsToCreate.push({
           userId,
           description: `${description} (${i + 1}/${installments})`,
-          amount: currentAmount, // Valor corrigido
+          amount: currentAmount,
           type,
           category,
           date: futureDate,
@@ -163,7 +194,7 @@ export async function addTransaction(formData: FormData) {
           installments,
           currentInstallment: i + 1,
           isPaid: false,
-          installmentId 
+          installmentId
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
@@ -230,7 +261,6 @@ export async function updateTransaction(formData: FormData) {
     return { error: validation.error.issues[0].message }
   }
 
-  // Segurança: Verificar propriedade
   const existingTransaction = await prisma.transaction.findUnique({ where: { id } });
   if (!existingTransaction || existingTransaction.userId !== userId) {
     return { error: 'Não autorizado ou transação não encontrada.' };
@@ -258,7 +288,6 @@ export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
 
-  // Segurança: Verificar propriedade
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) {
     return { error: 'Não autorizado.' };
@@ -271,13 +300,11 @@ export async function deleteTransaction(id: string) {
   return { success: true }
 }
 
-// NOVA FUNÇÃO: Deletar grupo de parcelas
 export async function deleteInstallmentGroupAction(installmentId: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
 
   try {
-    // Deleta onde o ID do grupo bate E o usuário é o dono (segurança implícita no deleteMany)
     await prisma.transaction.deleteMany({
       where: {
         installmentId: installmentId,
@@ -322,7 +349,6 @@ export async function getFinancialSummaryAction() {
   const userIds = [userId];
   if (user?.partnerId) userIds.push(user.partnerId);
 
-  // Agregação correta de todos os tipos
   const summary = await prisma.transaction.groupBy({
     by: ['type'],
     where: { userId: { in: userIds } },
@@ -333,9 +359,8 @@ export async function getFinancialSummaryAction() {
   const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
   const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
 
-  // Correção: Subtrair também os investimentos para refletir o "Saldo Disponível" real
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
-  
+
   return { accumulatedBalance };
 }
 
@@ -452,12 +477,15 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
 }
 
 // ==========================================
-// 5. INTELIGÊNCIA ARTIFICIAL (GERAL)
+// 5. INTELIGÊNCIA ARTIFICIAL (GERAL) - COM FALLBACK
 // ==========================================
 
 export async function generateFinancialAdviceAction() {
   const userId = await getUserId()
-  if (!userId) return { error: 'Auth error' }
+  if (!userId) return { success: false, error: 'Auth error' }
+
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return { success: false, error: 'Chave de API da IA não configurada.' };
 
   try {
     const user = await prisma.user.findUnique({
@@ -465,7 +493,7 @@ export async function generateFinancialAdviceAction() {
       include: { partner: true }
     })
 
-    if (!user) return { error: 'Usuário não encontrado.' }
+    if (!user) return { success: false, error: 'Usuário não encontrado.' }
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     if (user.lastAdvice && user.lastAdviceDate && user.lastAdviceDate > oneDayAgo) {
@@ -490,10 +518,8 @@ export async function generateFinancialAdviceAction() {
 
     const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${Number(user.spendingLimit)}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável e direto.`;
 
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
-    const result = await model.generateContent(prompt)
-    const adviceText = result.response.text();
+    // USANDO FUNÇÃO COM FALLBACK
+    const adviceText = await generateSmartAdvice(apiKey, prompt);
 
     await prisma.user.update({
       where: { id: userId },
@@ -504,9 +530,9 @@ export async function generateFinancialAdviceAction() {
     });
 
     return { success: true, message: adviceText }
-  } catch (error) {
-    console.error(error);
-    return { error: 'IA indisponível no momento.' }
+  } catch (error: any) {
+    console.error("Erro na IA Geral:", error);
+    return { success: false, error: 'IA indisponível no momento. Tente mais tarde.' }
   }
 }
 
@@ -703,7 +729,7 @@ export async function getBadgesAction() {
 }
 
 // ==========================================
-// 9. PLANEJAMENTO MENSAL (BUDGET + IA + ZOD)
+// 9. PLANEJAMENTO MENSAL (BUDGET + IA) - COM FALLBACK
 // ==========================================
 
 export type BudgetItem = {
@@ -718,7 +744,6 @@ export type BudgetData = {
   variableExpenses: BudgetItem[];
 };
 
-// Buscar planejamento (próprio ou do parceiro) com VALIDAÇÃO ZOD
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
   const currentUserId = await getUserId();
   if (!currentUserId) return null;
@@ -747,7 +772,6 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
       return emptyBudget;
     }
 
-    // --- PROTEÇÃO CONTRA DADOS CORROMPIDOS ---
     const validation = budgetDataSchema.safeParse(budget.data);
 
     if (!validation.success) {
@@ -763,10 +787,9 @@ export async function getMonthlyBudgetAction(month: number, year: number, target
   }
 }
 
-// Salvar planejamento (somente o próprio)
 export async function saveMonthlyBudgetAction(month: number, year: number, data: BudgetData) {
   const userId = await getUserId();
-  if (!userId) return { error: 'Não autorizado' };
+  if (!userId) return { error: 'Não autorizado', success: false };
 
   try {
     await prisma.monthlyBudget.upsert({
@@ -785,17 +808,22 @@ export async function saveMonthlyBudgetAction(month: number, year: number, data:
     });
 
     revalidatePath('/dashboard');
-    return { success: true, message: 'Planejamento salvo com sucesso!' };
+    return { success: true, message: 'Planejamento salvo com sucesso!', error: '' };
   } catch (error) {
     console.error("Erro ao salvar planejamento:", error);
-    return { error: 'Erro ao salvar.' };
+    return { error: 'Erro ao salvar.', success: false };
   }
 }
 
-// Análise IA do Planejamento
 export async function generatePlanningAdviceAction(month: number, year: number) {
   const userId = await getUserId();
-  if (!userId) return { error: 'Auth error' };
+  if (!userId) return { error: 'Auth error', success: false };
+
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.error("GOOGLE_API_KEY não configurada");
+    return { error: 'Configuração de IA ausente no servidor.', success: false };
+  }
 
   try {
     const budget = await prisma.monthlyBudget.findUnique({
@@ -803,51 +831,52 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
     });
 
     if (!budget || !budget.data) {
-      return { error: 'Nenhum planejamento encontrado para analisar.' };
+      return { error: 'Nenhum planejamento encontrado para analisar.', success: false };
     }
 
-    // Validação também aqui por segurança
     const validation = budgetDataSchema.safeParse(budget.data);
-    if (!validation.success) return { error: 'Dados inválidos para análise.' };
+    if (!validation.success) {
+      console.error("Erro de validação Zod:", JSON.stringify(validation.error.format(), null, 2));
+      return { error: 'Dados inconsistentes. Salve o planejamento novamente.', success: false };
+    }
 
     const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
 
     if (itemCount < 5) {
       return {
-        error: 'Recurso bloqueado',
-        details: 'Para acionar a Inteligência Artificial, adicione pelo menos 5 itens de despesas (fixas ou diversas) no seu planejamento.'
+        error: 'Poucos dados',
+        details: 'Adicione pelo menos 5 despesas para a IA analisar.',
+        success: false
       };
     }
 
-    const incomeStr = data.incomes.map(i => `${i.name}: R$${i.amount}`).join(', ');
-    const fixedStr = data.fixedExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
-    const varStr = data.variableExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
+    const fmt = (val: number) => `R$ ${Number(val).toFixed(2)}`;
+    const incomeStr = data.incomes.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
+    const fixedStr = data.fixedExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
+    const varStr = data.variableExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
 
     const prompt = `
       Atue como um consultor financeiro pessoal. Analise este planejamento mensal:
-      Entradas: ${incomeStr}
-      Gastos Fixos: ${fixedStr}
-      Gastos Diversos: ${varStr}
+      [ENTRADAS]: ${incomeStr || "Nenhuma"}
+      [GASTOS FIXOS]: ${fixedStr || "Nenhum"}
+      [GASTOS DIVERSOS]: ${varStr || "Nenhum"}
       
-      Por favor, forneça uma análise curta (máximo 3 parágrafos) em Markdown.
-      1. Identifique se o orçamento está saudável.
-      2. Aponte onde é possível economizar.
+      Responda em Markdown (max 3 parágrafos):
+      1. Identifique se o orçamento está saudável (sobra ou falta?).
+      2. Aponte explicitamente onde é possível economizar.
       3. Dê uma nota de 0 a 10 para este planejamento.
-      Seja direto, amigável e motivador.
+      Seja direto e motivador.
     `;
 
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // USANDO FUNÇÃO COM FALLBACK
+    const adviceText = await generateSmartAdvice(apiKey, prompt);
 
-    const result = await model.generateContent(prompt);
-    const adviceText = result.response.text();
+    return { success: true, message: adviceText, error: '' };
 
-    return { success: true, message: adviceText };
-
-  } catch (error) {
-    console.error("Erro IA Planejamento:", error);
-    return { error: 'Erro ao gerar análise.' };
+  } catch (error: any) {
+    console.error("Erro CRÍTICO na IA de Planejamento:", error);
+    return { error: `Erro na IA: ${error.message || 'Serviço indisponível no momento.'}`, success: false };
   }
 }
 
@@ -855,7 +884,6 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 // 10. GESTÃO DE PERFIL E SEGURANÇA
 // ==========================================
 
-// Atualizar Nome
 export async function updateProfileNameAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Não autorizado' };
@@ -868,7 +896,6 @@ export async function updateProfileNameAction(formData: FormData) {
   return { success: true, message: 'Nome atualizado!' };
 }
 
-// Atualizar Senha (Logado)
 export async function updatePasswordAction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
@@ -886,7 +913,6 @@ export async function updatePasswordAction(formData: FormData) {
   return { success: true, message: 'Senha atualizada!' }
 }
 
-// Excluir Conta
 export async function deleteAccountAction() {
   const userId = await getUserId();
   if (!userId) return { error: 'Não autorizado' };
@@ -903,7 +929,6 @@ export async function deleteAccountAction() {
   }
 }
 
-// Esqueci minha senha (Gerar Token e Enviar Email)
 export async function forgotPasswordAction(formData: FormData) {
   const email = formData.get('email') as string;
 
@@ -923,7 +948,6 @@ export async function forgotPasswordAction(formData: FormData) {
   return { success: true };
 }
 
-// Redefinir Senha (Usar Token)
 export async function resetPasswordAction(token: string, formData: FormData) {
   const password = formData.get('password') as string;
   if (password.length < 6) return { error: 'A senha deve ter no mínimo 6 caracteres.' };

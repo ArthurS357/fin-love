@@ -1,14 +1,16 @@
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "name" TEXT,
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
-    "spendingLimit" DECIMAL(10,2) DEFAULT 0,
-    "savingsGoal" TEXT DEFAULT 'Caixinha dos Sonhos',
+    "spendingLimit" DECIMAL(65,30) NOT NULL DEFAULT 2000,
+    "savingsGoal" TEXT NOT NULL DEFAULT 'Caixinha',
+    "partnerId" TEXT,
     "lastAdvice" TEXT,
     "lastAdviceDate" TIMESTAMP(3),
-    "partnerId" TEXT,
+    "resetToken" TEXT,
+    "resetTokenExpiry" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -18,14 +20,14 @@ CREATE TABLE "User" (
 -- CreateTable
 CREATE TABLE "Transaction" (
     "id" TEXT NOT NULL,
-    "amount" DECIMAL(10,2) NOT NULL,
     "description" TEXT NOT NULL,
-    "category" TEXT NOT NULL,
+    "amount" DECIMAL(65,30) NOT NULL,
     "type" TEXT NOT NULL,
-    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "paymentMethod" TEXT DEFAULT 'DEBIT',
-    "installments" INTEGER DEFAULT 1,
-    "currentInstallment" INTEGER DEFAULT 1,
+    "category" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "paymentMethod" TEXT,
+    "installments" INTEGER,
+    "currentInstallment" INTEGER,
     "isPaid" BOOLEAN NOT NULL DEFAULT true,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -37,19 +39,29 @@ CREATE TABLE "Transaction" (
 -- CreateTable
 CREATE TABLE "RecurringTransaction" (
     "id" TEXT NOT NULL,
-    "amount" DECIMAL(10,2) NOT NULL,
     "description" TEXT NOT NULL,
-    "category" TEXT NOT NULL,
+    "amount" DECIMAL(65,30) NOT NULL,
     "type" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
     "frequency" TEXT NOT NULL,
-    "active" BOOLEAN NOT NULL DEFAULT true,
-    "nextRun" TIMESTAMP(3) NOT NULL,
     "dayOfMonth" INTEGER,
+    "nextRun" TIMESTAMP(3) NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
     "userId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RecurringTransaction_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Category" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT,
+    "icon" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'EXPENSE',
+    "userId" TEXT NOT NULL,
+
+    CONSTRAINT "Category_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -66,36 +78,50 @@ CREATE TABLE "Badge" (
 );
 
 -- CreateTable
-CREATE TABLE "Category" (
+CREATE TABLE "MonthlyBudget" (
     "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "type" TEXT,
-    "icon" TEXT,
-    "color" TEXT,
     "userId" TEXT NOT NULL,
-
-    CONSTRAINT "Category_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PartnerRequest" (
-    "id" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "senderId" TEXT NOT NULL,
-    "receiverId" TEXT NOT NULL,
+    "month" INTEGER NOT NULL,
+    "year" INTEGER NOT NULL,
+    "data" JSONB NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "PartnerRequest_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "MonthlyBudget_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "User_partnerId_key" ON "User"("partnerId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_resetToken_key" ON "User"("resetToken");
+
+-- CreateIndex
+CREATE INDEX "User_email_idx" ON "User"("email");
+
+-- CreateIndex
 CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date");
 
 -- CreateIndex
 CREATE INDEX "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
+
+-- CreateIndex
+CREATE INDEX "RecurringTransaction_active_nextRun_idx" ON "RecurringTransaction"("active", "nextRun");
+
+-- CreateIndex
+CREATE INDEX "Category_userId_type_idx" ON "Category"("userId", "type");
+
+-- CreateIndex
+CREATE INDEX "Badge_userId_idx" ON "Badge"("userId");
+
+-- CreateIndex
+CREATE INDEX "MonthlyBudget_userId_month_year_idx" ON "MonthlyBudget"("userId", "month", "year");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "MonthlyBudget_userId_month_year_key" ON "MonthlyBudget"("userId", "month", "year");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -107,13 +133,10 @@ ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY (
 ALTER TABLE "RecurringTransaction" ADD CONSTRAINT "RecurringTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Badge" ADD CONSTRAINT "Badge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Category" ADD CONSTRAINT "Category_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PartnerRequest" ADD CONSTRAINT "PartnerRequest_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Badge" ADD CONSTRAINT "Badge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PartnerRequest" ADD CONSTRAINT "PartnerRequest_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "MonthlyBudget" ADD CONSTRAINT "MonthlyBudget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

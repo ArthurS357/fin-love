@@ -2,6 +2,7 @@
 import 'server-only';
 
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -9,6 +10,9 @@ import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose' 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore, setDate } from 'date-fns'
+import { randomBytes } from 'crypto' // Necessário para gerar token de recuperação
+import { sendPasswordResetEmail } from '@/lib/mail' // Import da função de email que criamos
+
 import {
   registerSchema,
   loginSchema,
@@ -19,7 +23,6 @@ import {
   passwordSchema
 } from '@/lib/schemas'
 
-// --- OTIMIZAÇÃO: Importando lógica centralizada de Auth ---
 import { getUserId, JWT_SECRET } from '@/lib/auth';
 
 type ActionState = {
@@ -28,7 +31,7 @@ type ActionState = {
 }
 
 // ==========================================
-// 1. AUTHENTICATION
+// 1. AUTENTICAÇÃO (AUTH)
 // ==========================================
 
 export async function registerUser(prevState: any, formData: FormData): Promise<ActionState> {
@@ -50,7 +53,6 @@ export async function registerUser(prevState: any, formData: FormData): Promise<
       data: { name, email, password: hashedPassword, spendingLimit: 2000 },
     })
 
-    // Usa o JWT_SECRET centralizado
     const token = await new SignJWT({ sub: user.id })
         .setProtectedHeader({ alg: 'HS256' })
         .setExpirationTime('7d')
@@ -102,14 +104,13 @@ export async function logoutUser() {
 }
 
 // ==========================================
-// 2. TRANSACTIONS (CRUD + PARCELAS)
+// 2. TRANSAÇÕES (CRUD + PARCELAMENTO)
 // ==========================================
 
 export async function addTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Usuário não autenticado' }
 
-  // 1. Validação com Zod (Segurança e Tipagem)
   const rawData = Object.fromEntries(formData);
   const validation = transactionSchema.safeParse(rawData);
 
@@ -132,7 +133,7 @@ export async function addTransaction(formData: FormData) {
   const baseDate = date ? new Date(date) : new Date();
 
   try {
-    // Lógica 1: Cartão de Crédito Parcelado
+    // 1. Lógica de Parcelamento (Cartão de Crédito)
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
       const transactionsToCreate = [];
       for (let i = 0; i < installments; i++) {
@@ -147,12 +148,12 @@ export async function addTransaction(formData: FormData) {
           paymentMethod: 'CREDIT',
           installments,
           currentInstallment: i + 1,
-          isPaid: false // Parcelas futuras nascem não pagas
+          isPaid: false 
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
     } 
-    // Lógica 2: Transação Padrão
+    // 2. Lógica Padrão (À vista/Débito)
     else {
       await prisma.transaction.create({
         data: {
@@ -163,12 +164,12 @@ export async function addTransaction(formData: FormData) {
           category,
           date: baseDate,
           paymentMethod: paymentMethod || 'DEBIT',
-          isPaid: paymentMethod !== 'CREDIT' // Se for crédito à vista, nasce em aberto
+          isPaid: paymentMethod !== 'CREDIT' 
         },
       })
     }
 
-    // Lógica 3: Recorrência com Dia Específico
+    // 3. Lógica de Recorrência (Assinaturas)
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       if (recurringDay) {
@@ -191,7 +192,6 @@ export async function addTransaction(formData: FormData) {
 
     await checkBadgesAction()
     
-    // OTIMIZAÇÃO: Invalida cache com 'max' para atualizar dados imediatamente
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidatePath('/dashboard');
     
@@ -257,7 +257,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 }
 
 // ==========================================
-// 3. FINANCIAL SUMMARY (LEGACY SUPPORT)
+// 3. RESUMO FINANCEIRO
 // ==========================================
 
 export async function getFinancialSummaryAction() {
@@ -287,7 +287,7 @@ export async function getFinancialSummaryAction() {
 }
 
 // ==========================================
-// 4. PARTNER & PROFILE
+// 4. PARCEIRO & METAS
 // ==========================================
 
 export async function linkPartnerAction(formData: FormData) {
@@ -313,7 +313,6 @@ export async function linkPartnerAction(formData: FormData) {
 
     await checkBadgesAction()
     
-    // Invalida cache de ambos os usuários
     revalidateTag(`dashboard:${userId}`, 'max');
     revalidateTag(`dashboard:${partner.id}`, 'max');
     revalidatePath('/dashboard')
@@ -399,25 +398,8 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   return { success: true, message: 'Meta atualizada!' }
 }
 
-export async function updatePasswordAction(formData: FormData) {
-  const userId = await getUserId()
-  if (!userId) return { error: 'Auth error' }
-
-  const validation = passwordSchema.safeParse(Object.fromEntries(formData))
-  if (!validation.success) return { error: validation.error.issues[0].message }
-
-  const { currentPassword, newPassword } = validation.data
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (!user || !(await bcrypt.compare(currentPassword, user.password))) return { error: 'Senha atual incorreta.' }
-
-  const hashed = await bcrypt.hash(newPassword, 10)
-  await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
-  return { success: true, message: 'Senha atualizada!' }
-}
-
 // ==========================================
-// 5. AI ADVICE
+// 5. INTELIGÊNCIA ARTIFICIAL (GERAL)
 // ==========================================
 
 export async function generateFinancialAdviceAction() {
@@ -476,7 +458,7 @@ export async function generateFinancialAdviceAction() {
 }
 
 // ==========================================
-// 6. CATEGORIES
+// 6. CATEGORIAS
 // ==========================================
 
 export async function getCategoriesAction() {
@@ -534,7 +516,7 @@ export async function deleteCategoryAction(id: string) {
 }
 
 // ==========================================
-// 7. RECURRING & JOBS
+// 7. CRON JOBS (RECORRÊNCIA)
 // ==========================================
 
 export async function checkRecurringTransactionsAction() {
@@ -599,7 +581,7 @@ export async function checkRecurringTransactionsAction() {
 }
 
 // ==========================================
-// 8. GAMIFICATION
+// 8. GAMIFICAÇÃO (BADGES)
 // ==========================================
 
 const BADGES_RULES = [
@@ -665,4 +647,251 @@ export async function getBadgesAction() {
   const userId = await getUserId();
   if (!userId) return [];
   return await prisma.badge.findMany({ where: { userId }, orderBy: { earnedAt: 'desc' } });
+}
+
+// ==========================================
+// 9. PLANEJAMENTO MENSAL (BUDGET + IA)
+// ==========================================
+
+export type BudgetItem = {
+  id: string;
+  name: string;
+  amount: number;
+};
+
+export type BudgetData = {
+  incomes: BudgetItem[];
+  fixedExpenses: BudgetItem[];
+  variableExpenses: BudgetItem[];
+};
+
+// Buscar planejamento (próprio ou do parceiro)
+export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
+  const currentUserId = await getUserId();
+  if (!currentUserId) return null;
+
+  // Define qual ID buscar: se foi passado um alvo e ele for parceiro, usa ele.
+  let userIdToFetch = currentUserId;
+
+  if (targetUserId && targetUserId !== currentUserId) {
+    const me = await prisma.user.findUnique({ where: { id: currentUserId } });
+    // Segurança: Verificar se o target é realmente o parceiro
+    if (me?.partnerId === targetUserId) {
+      userIdToFetch = targetUserId;
+    } else {
+      return null;
+    }
+  }
+
+  try {
+    const budget = await prisma.monthlyBudget.findUnique({
+      where: {
+        userId_month_year: { userId: userIdToFetch, month, year }
+      }
+    });
+
+    if (!budget || !budget.data) {
+      return {
+        incomes: [],
+        fixedExpenses: [],
+        variableExpenses: []
+      } as BudgetData;
+    }
+
+    return budget.data as BudgetData;
+  } catch (error) {
+    console.error("Erro ao buscar planejamento:", error);
+    return null;
+  }
+}
+
+// Salvar planejamento (somente o próprio)
+export async function saveMonthlyBudgetAction(month: number, year: number, data: BudgetData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Não autorizado' };
+
+  try {
+    // Upsert garante que cria se não existe ou atualiza se já existe
+    await prisma.monthlyBudget.upsert({
+      where: {
+        userId_month_year: { userId, month, year }
+      },
+      update: {
+        data: data as unknown as Prisma.InputJsonValue
+      },
+      create: {
+        userId,
+        month,
+        year,
+        data: data as unknown as Prisma.InputJsonValue
+      }
+    });
+
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Planejamento salvo com sucesso!' };
+  } catch (error) {
+    console.error("Erro ao salvar planejamento:", error);
+    return { error: 'Erro ao salvar.' };
+  }
+}
+
+// Análise IA do Planejamento
+export async function generatePlanningAdviceAction(month: number, year: number) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  try {
+    const budget = await prisma.monthlyBudget.findUnique({
+      where: { userId_month_year: { userId, month, year } }
+    });
+
+    if (!budget || !budget.data) {
+      return { error: 'Nenhum planejamento encontrado para analisar.' };
+    }
+
+    const data = budget.data as BudgetData;
+    const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
+
+    // REGRA DE ECONOMIA: Só ativa se tiver pelo menos 5 itens de gasto
+    if (itemCount < 5) {
+      return { 
+        error: 'Recurso bloqueado', 
+        details: 'Para acionar a Inteligência Artificial, adicione pelo menos 5 itens de despesas (fixas ou diversas) no seu planejamento.' 
+      };
+    }
+
+    // Prepara o prompt
+    const incomeStr = data.incomes.map(i => `${i.name}: R$${i.amount}`).join(', ');
+    const fixedStr = data.fixedExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
+    const varStr = data.variableExpenses.map(i => `${i.name}: R$${i.amount}`).join(', ');
+
+    const prompt = `
+      Atue como um consultor financeiro pessoal. Analise este planejamento mensal:
+      Entradas: ${incomeStr}
+      Gastos Fixos: ${fixedStr}
+      Gastos Diversos: ${varStr}
+      
+      Por favor, forneça uma análise curta (máximo 3 parágrafos) em Markdown.
+      1. Identifique se o orçamento está saudável.
+      2. Aponte onde é possível economizar.
+      3. Dê uma nota de 0 a 10 para este planejamento.
+      Seja direto, amigável e motivador.
+    `;
+
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    const result = await model.generateContent(prompt);
+    const adviceText = result.response.text();
+
+    return { success: true, message: adviceText };
+
+  } catch (error) {
+    console.error("Erro IA Planejamento:", error);
+    return { error: 'Erro ao gerar análise.' };
+  }
+}
+
+// ==========================================
+// 10. GESTÃO DE PERFIL E SEGURANÇA
+// ==========================================
+
+// Atualizar Nome
+export async function updateProfileNameAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Não autorizado' };
+
+  const name = formData.get('name') as string;
+  if (!name || name.length < 3) return { error: 'Nome inválido.' };
+
+  await prisma.user.update({ where: { id: userId }, data: { name } });
+  revalidatePath('/dashboard');
+  return { success: true, message: 'Nome atualizado!' };
+}
+
+// Atualizar Senha (Logado)
+export async function updatePasswordAction(formData: FormData) {
+  const userId = await getUserId()
+  if (!userId) return { error: 'Auth error' }
+
+  const validation = passwordSchema.safeParse(Object.fromEntries(formData))
+  if (!validation.success) return { error: validation.error.issues[0].message }
+
+  const { currentPassword, newPassword } = validation.data
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !(await bcrypt.compare(currentPassword, user.password))) return { error: 'Senha atual incorreta.' }
+
+  const hashed = await bcrypt.hash(newPassword, 10)
+  await prisma.user.update({ where: { id: userId }, data: { password: hashed } })
+  return { success: true, message: 'Senha atualizada!' }
+}
+
+// Excluir Conta
+export async function deleteAccountAction() {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Não autorizado' };
+
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+    
+    // Logout forçado
+    const cookieStore = await cookies();
+    cookieStore.delete('token');
+    
+    return { success: true };
+  } catch (error) {
+    return { error: 'Erro ao excluir conta.' };
+  }
+}
+
+// Esqueci minha senha (Gerar Token e Enviar Email)
+export async function forgotPasswordAction(formData: FormData) {
+  const email = formData.get('email') as string;
+  
+  const user = await prisma.user.findUnique({ where: { email } });
+  // Retorna sucesso sempre para não vazar emails cadastrados (Security through obscurity)
+  if (!user) return { success: true }; 
+
+  // Gerar Token
+  const token = randomBytes(32).toString('hex');
+  const expiry = new Date(Date.now() + 3600000); // 1 hora de validade
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetToken: token, resetTokenExpiry: expiry }
+  });
+
+  // Enviar Email
+  await sendPasswordResetEmail(email, token);
+
+  return { success: true };
+}
+
+// Redefinir Senha (Usar Token)
+export async function resetPasswordAction(token: string, formData: FormData) {
+  const password = formData.get('password') as string;
+  if (password.length < 6) return { error: 'A senha deve ter no mínimo 6 caracteres.' };
+
+  const user = await prisma.user.findFirst({
+    where: {
+      resetToken: token,
+      resetTokenExpiry: { gt: new Date() } // Token ainda válido
+    }
+  });
+
+  if (!user) return { error: 'Link inválido ou expirado.' };
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { 
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExpiry: null
+    }
+  });
+
+  return { success: true };
 }

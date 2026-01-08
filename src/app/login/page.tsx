@@ -1,84 +1,89 @@
 'use client'
 
-import { useActionState } from 'react';
-import Link from 'next/link';
-import { loginUser } from '../actions';
-import { Heart, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useActionState, useState, useEffect } from 'react'
+import { loginUser } from '@/app/actions'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { Loader2, Eye, EyeOff, LogIn } from 'lucide-react'
+import { toast } from 'sonner'
 
-const initialState = { error: '', success: false };
+const initialState = { success: false, error: '' }
 
-export default function LoginPage() {
-  const [state, formAction, isPending] = useActionState(loginUser, initialState);
-  const router = useRouter();
+export default function Login() {
+  const [state, action, isPending] = useActionState(loginUser, initialState)
+  const [showPassword, setShowPassword] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
-    if (state?.error) {
-      toast.error(state.error);
+    if (state.success) {
+      toast.success('Bem-vindo de volta!')
+      router.push('/dashboard')
     }
-    if (state?.success) {
-      toast.success("Login realizado com sucesso!");
-      router.push('/dashboard');
-    }
-  }, [state, router]);
+  }, [state.success, router])
 
   return (
-    <div className="min-h-screen bg-[#130b20] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-900/20 rounded-full blur-[100px]" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-pink-900/20 rounded-full blur-[100px]" />
-
-      <div className="w-full max-w-md bg-[#1f1630] border border-white/10 rounded-3xl p-8 shadow-2xl relative z-10 animate-in fade-in zoom-in-95 duration-500">
-        
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-pink-500/10 mb-4 ring-1 ring-pink-500/30">
-            <Heart className="text-pink-500 fill-pink-500/20" size={32} />
+    <div className="min-h-screen flex items-center justify-center bg-[#130b20] p-4">
+      <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="text-center">
+           <div className="mx-auto bg-purple-500/10 w-16 h-16 flex items-center justify-center rounded-full mb-4">
+             <LogIn className="w-8 h-8 text-purple-500" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Bem-vindo de volta</h1>
-          <p className="text-gray-400 text-sm mt-2">Acesse sua conta para continuar</p>
+          <h2 className="text-3xl font-bold text-white tracking-tight">Acesse sua conta</h2>
         </div>
 
-        <form action={formAction} className="space-y-4">
+        <form action={action} className="space-y-6 bg-[#1f1630] p-8 rounded-2xl border border-white/5 shadow-xl">
           <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Email</label>
+            <label className="text-sm font-medium text-gray-300">Email</label>
             <input 
               name="email" 
               type="email" 
               required 
-              className="w-full bg-[#130b20] text-white border border-gray-700 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-4 py-3 outline-none transition"
+              className="mt-1 w-full bg-[#130b20] border border-white/10 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" 
               placeholder="seu@email.com"
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">Senha</label>
-            <input 
-              name="password" 
-              type="password" 
-              required 
-              className="w-full bg-[#130b20] text-white border border-gray-700 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-4 py-3 outline-none transition"
-              placeholder="••••••••"
-            />
+            <label className="text-sm font-medium text-gray-300">Senha</label>
+             <div className="relative mt-1">
+              <input 
+                name="password" 
+                type={showPassword ? "text" : "password"} 
+                required 
+                className="w-full bg-[#130b20] border border-white/10 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition pr-10" 
+                placeholder="******"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
+          {state.error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm text-center">
+              {state.error}
+            </div>
+          )}
+
           <button 
-            type="submit" 
             disabled={isPending}
-            className="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-pink-900/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {isPending ? <Loader2 className="animate-spin" size={20} /> : 'Entrar'}
+            {isPending ? <Loader2 className="animate-spin" /> : 'Entrar'}
           </button>
         </form>
 
-        <p className="text-center text-gray-400 text-sm mt-8">
-          Ainda não tem conta?{' '}
-          <Link href="/register" className="text-pink-400 hover:text-pink-300 font-semibold hover:underline">
-            Criar conta
+        <p className="text-center text-sm text-gray-400">
+          Não tem uma conta?{' '}
+          <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium hover:underline">
+            Cadastre-se
           </Link>
         </p>
       </div>
     </div>
-  );
+  )
 }

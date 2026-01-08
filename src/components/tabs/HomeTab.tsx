@@ -1,167 +1,161 @@
 'use client';
 
-import { 
-  ArrowUpCircle, 
-  ArrowDownCircle, 
-  Wallet, 
-  TrendingUp, 
-  PieChart as PieChartIcon, 
-  MoreHorizontal 
-} from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Cell, 
-  PieChart, 
-  Pie 
-} from 'recharts';
-// Importação da nossa função utilitária
-import { formatCurrency } from '@/lib/utils';
+import { TrendingUp, TrendingDown, DollarSign, Heart, User, AlertCircle } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';
+import dynamic from 'next/dynamic';
+
+const PlanningTab = dynamic(() => import('./PlanningTab'), {
+  loading: () => <div className="h-40 bg-white/5 rounded-2xl animate-pulse" />
+});
+
+const COLORS = ['#EC4899', '#8B5CF6', '#F59E0B', '#10B981', '#3B82F6'];
 
 interface HomeTabProps {
-  income: number;
-  expense: number;
-  balance: number;
-  accumulatedBalance: number;
+  myStats: { income: number; expense: number; balance: number };
+  partnerStats: { income: number; expense: number; balance: number };
+  partnerName: string;
+  hasPartner: boolean;
   pieData: any[];
   barData: any[];
   privacyMode: boolean;
+  month: number;
+  year: number;
+  partnerId?: string;
 }
 
-const COLORS = ['#EC4899', '#8B5CF6', '#A855F7', '#D946EF', '#F472B6', '#C084FC'];
-
-export default function HomeTab({ 
-  income, 
-  expense, 
-  balance, 
-  accumulatedBalance, 
-  pieData, 
-  barData, 
-  privacyMode 
+export default function HomeTab({
+  myStats, partnerStats, partnerName, hasPartner,
+  pieData, barData, privacyMode,
+  month, year, partnerId
 }: HomeTabProps) {
 
-  const previousBalance = accumulatedBalance - balance;
+  const formatCurrency = (val: number) =>
+    privacyMode ? '••••' : `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
-  // Função auxiliar para controlar a privacidade
-  const displayValue = (value: number) => {
-    if (privacyMode) return '••••••';
-    return formatCurrency(value);
-  };
+  // Helper para cores condicionais
+  const getBalanceColor = (val: number) => val >= 0 ? 'text-emerald-400' : 'text-red-400';
 
   return (
-    <div className="space-y-6 pb-20 md:pb-0">
-      
-      {/* --- CARD PRINCIPAL (SALDO ACUMULADO) --- */}
-      <div className="relative overflow-hidden rounded-[2rem] p-6 shadow-2xl bg-gradient-to-br from-pink-600 to-purple-700 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        
-        {/* Background Decorativo */}
-        <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 bg-white opacity-5 blur-3xl rounded-full pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 -ml-10 -mb-10 w-40 h-40 bg-black opacity-10 blur-2xl rounded-full pointer-events-none"></div>
+    <div className="space-y-8">
 
-        <div className="relative z-10 text-white">
-          <div className="flex items-center gap-2 mb-2 opacity-90">
-            <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
-              <Wallet size={16} className="text-white" />
+      {/* SEÇÃO 1: CARDS DE SALDO SEPARADOS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* --- MEU CARD --- */}
+        <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden group">
+          {/* Efeito de fundo sutil */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="p-1.5 bg-purple-500/10 rounded-lg text-purple-400"><User size={14} /></div>
+              <h3 className="text-gray-400 text-sm font-medium">Minhas Finanças</h3>
             </div>
-            <span className="text-sm font-medium tracking-wide">Saldo Total em Conta</span>
-          </div>
 
-          <div className="mb-6">
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
-              {displayValue(accumulatedBalance)}
-            </h2>
-          </div>
+            {/* Saldo Principal com Cor */}
+            <p className={`text-3xl font-bold mb-6 ${privacyMode ? 'text-white' : getBalanceColor(myStats.balance)}`}>
+              {formatCurrency(myStats.balance)}
+            </p>
 
-          {/* Detalhamento (Mês Anterior vs Atual) */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-6 bg-black/20 backdrop-blur-md rounded-2xl p-4 border border-white/5">
-             {/* Veio do Mês Passado */}
-             <div className="flex items-center gap-3 pr-6 sm:border-r border-white/10">
-                <div className="p-2 rounded-full bg-white/10">
-                  <MoreHorizontal size={18} className="text-pink-200" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-[#130b20]/50 p-3 rounded-2xl border border-white/5">
+                <div className="flex items-center gap-2 text-emerald-400 text-xs mb-1 font-bold uppercase tracking-wider">
+                  <TrendingUp size={14} /> Entradas
                 </div>
-                <div>
-                   <p className="text-[10px] uppercase font-bold text-pink-200/70 tracking-wider">Mês Anterior</p>
-                   <p className="font-semibold text-lg">{displayValue(previousBalance)}</p>
+                <p className="font-semibold text-gray-200">{formatCurrency(myStats.income)}</p>
+              </div>
+              <div className="bg-[#130b20]/50 p-3 rounded-2xl border border-white/5">
+                <div className="flex items-center gap-2 text-red-400 text-xs mb-1 font-bold uppercase tracking-wider">
+                  <TrendingDown size={14} /> Saídas
                 </div>
-             </div>
-
-             {/* Resultado deste Mês */}
-             <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-full ${balance >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-                  {balance >= 0 ? <TrendingUp size={18} className="text-green-300" /> : <ArrowDownCircle size={18} className="text-red-300" />}
-                </div>
-                <div>
-                   <p className="text-[10px] uppercase font-bold text-pink-200/70 tracking-wider">Resultado do Mês</p>
-                   <p className={`font-semibold text-lg ${balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                     {balance > 0 ? '+' : ''}{displayValue(balance)}
-                   </p>
-                </div>
-             </div>
+                <p className="font-semibold text-gray-200">{formatCurrency(myStats.expense)}</p>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* --- CARD DO PARCEIRO --- */}
+        {hasPartner ? (
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden group">
+            {/* Efeito de fundo rosa sutil */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-pink-500/10 rounded-lg text-pink-400"><Heart size={14} /></div>
+                <h3 className="text-gray-400 text-sm font-medium">Finanças de {partnerName.split(' ')[0]}</h3>
+              </div>
+
+              {/* Saldo Parceiro com Cor */}
+              <p className={`text-3xl font-bold mb-6 ${privacyMode ? 'text-white' : getBalanceColor(partnerStats.balance)}`}>
+                {formatCurrency(partnerStats.balance)}
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-[#130b20]/50 p-3 rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs mb-1 font-bold uppercase tracking-wider">
+                    <TrendingUp size={14} /> Entradas
+                  </div>
+                  <p className="font-semibold text-gray-200">{formatCurrency(partnerStats.income)}</p>
+                </div>
+                <div className="bg-[#130b20]/50 p-3 rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-2 text-red-400 text-xs mb-1 font-bold uppercase tracking-wider">
+                    <TrendingDown size={14} /> Saídas
+                  </div>
+                  <p className="font-semibold text-gray-200">{formatCurrency(partnerStats.expense)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Estado Desconectado (Roxo Acinzentado / Neutro)
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-dashed border-white/10 flex flex-col items-center justify-center text-center group hover:bg-white/[0.02] transition">
+            <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mb-3 text-gray-500 group-hover:text-pink-400 group-hover:scale-110 transition">
+              <Heart size={24} />
+            </div>
+            <p className="text-gray-300 font-medium mb-1">Conecte-se ao seu amor</p>
+            <p className="text-xs text-gray-500 max-w-[220px] leading-relaxed">
+              Junte suas finanças para ver o saldo e os gastos dele(a) aqui, com as mesmas cores e detalhes.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* --- CARDS DE ENTRADA E SAÍDA DO MÊS --- */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Entradas */}
-        <div className="bg-[#1a1025] border border-white/5 p-5 rounded-3xl relative overflow-hidden group hover:border-white/10 transition-colors">
-          <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-            <ArrowUpCircle size={80} />
-          </div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-green-500/10 rounded-xl text-green-400">
-              <ArrowUpCircle size={20} />
-            </div>
-            <span className="text-gray-400 text-sm font-medium">Entradas</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{displayValue(income)}</p>
-        </div>
-
-        {/* Saídas */}
-        <div className="bg-[#1a1025] border border-white/5 p-5 rounded-3xl relative overflow-hidden group hover:border-white/10 transition-colors">
-          <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-            <ArrowDownCircle size={80} />
-          </div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-red-500/10 rounded-xl text-red-400">
-              <ArrowDownCircle size={20} />
-            </div>
-            <span className="text-gray-400 text-sm font-medium">Saídas</span>
-          </div>
-          <p className="text-2xl font-bold text-white">{displayValue(expense)}</p>
-        </div>
-      </div>
-
-      {/* --- GRÁFICOS --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Gráfico de Barras (Resumo) */}
-        <div className="bg-[#1a1025] p-6 rounded-3xl border border-white/5">
-          <h3 className="text-white font-bold mb-6 flex items-center gap-2">
-            <TrendingUp size={18} className="text-purple-400" /> Fluxo Mensal
-          </h3>
+      {/* SEÇÃO 2: GRÁFICOS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-2 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
+          <h3 className="text-lg font-bold text-white mb-6">Gastos por Categoria</h3>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData} barSize={40}>
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#9CA3AF', fontSize: 12 }} 
-                  dy={10}
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                  {pieData.map((_: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="rgba(255,255,255,0.05)" />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1a1025', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' }}
+                  itemStyle={{ color: '#fff' }}
+                  formatter={(val: any) => `R$ ${Number(val).toFixed(2)}`}
                 />
-                <Tooltip 
-                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                  contentStyle={{ backgroundColor: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
-                  // CORREÇÃO: Tipagem (value: any) aceita number | undefined
-                  formatter={(value: any) => [formatCurrency(value), 'Valor']}
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col justify-center">
+          <h3 className="text-lg font-bold text-white mb-4 text-center">Balanço Geral</h3>
+          <div className="h-48 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData}>
+                <XAxis dataKey="name" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ backgroundColor: '#1a1025', border: 'none', borderRadius: '8px' }}
+                  formatter={(val: any) => `R$ ${Number(val).toFixed(2)}`}
                 />
-                <Bar dataKey="valor" radius={[6, 6, 0, 0]}>
-                  {barData.map((entry, index) => (
+                <Bar dataKey="valor" radius={[4, 4, 0, 0]}>
+                  {barData.map((entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={index === 0 ? '#10B981' : '#EF4444'} />
                   ))}
                 </Bar>
@@ -169,56 +163,20 @@ export default function HomeTab({
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* Gráfico de Pizza (Categorias) */}
-        <div className="bg-[#1a1025] p-6 rounded-3xl border border-white/5">
-          <h3 className="text-white font-bold mb-6 flex items-center gap-2">
-            <PieChartIcon size={18} className="text-pink-400" /> Gastos por Categoria
-          </h3>
-          <div className="h-64 w-full flex items-center justify-center relative">
-            {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#1f1630', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff' }}
-                    itemStyle={{ color: '#fff' }}
-                    // CORREÇÃO: Tipagem (value: any)
-                    formatter={(value: any) => [formatCurrency(value), 'Valor']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="text-center text-gray-500">
-                <PieChartIcon size={48} className="mx-auto mb-2 opacity-20" />
-                <p className="text-sm">Sem gastos registrados</p>
-              </div>
-            )}
-            
-            {/* Texto Central (Total Gastos) */}
-            {pieData.length > 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                 <span className="text-xs text-gray-400 font-medium">Total</span>
-                 <span className="text-lg font-bold text-white">{displayValue(expense)}</span>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
+      {/* SEÇÃO 3: PLANILHA DE PLANEJAMENTO */}
+      <div className="border-t border-white/5 pt-8">
+        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+          <DollarSign className="text-pink-500" /> Planejamento Mensal
+        </h2>
+        <PlanningTab
+          month={month}
+          year={year}
+          partnerId={partnerId}
+          partnerName={partnerName}
+        />
+      </div>
     </div>
   );
 }

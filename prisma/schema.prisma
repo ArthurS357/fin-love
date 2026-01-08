@@ -12,26 +12,34 @@ datasource db {
 
 // --- MODELO DE USUÁRIO ---
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  password      String
-  spendingLimit Decimal   @default(2000)
-  savingsGoal   String    @default("Caixinha")
-  partnerId     String?   @unique
-  lastAdvice    String?   @db.Text
-  lastAdviceDate DateTime?
+  id               String    @id @default(cuid())
+  name             String?
+  email            String    @unique
+  password         String
+  spendingLimit    Decimal   @default(2000)
+  savingsGoal      String    @default("Caixinha")
+  partnerId        String?   @unique
   
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  // Campos de IA
+  lastAdvice       String?   @db.Text
+  lastAdviceDate   DateTime?
 
-  partner       User?     @relation("Partner", fields: [partnerId], references: [id])
-  partnerOf     User?     @relation("Partner")
+  // Campos de Recuperação de Senha (O QUE FALTAVA)
+  resetToken       String?   @unique
+  resetTokenExpiry DateTime?
 
-  transactions  Transaction[]
-  categories    Category[]
-  badges        Badge[]
-  recurring     RecurringTransaction[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relações
+  partner          User?     @relation("Partner", fields: [partnerId], references: [id])
+  partnerOf        User?     @relation("Partner")
+
+  transactions     Transaction[]
+  categories       Category[]
+  badges           Badge[]
+  recurring        RecurringTransaction[]
+  monthlyBudgets   MonthlyBudget[]
 
   @@index([email]) // Login rápido
 }
@@ -55,10 +63,10 @@ model Transaction {
   updatedAt          DateTime @updatedAt
 
   // --- OTIMIZAÇÃO CRÍTICA (Índices) ---
-  // 1. Busca do Dashboard (Mês/Ano): Reduz leitura de milhares para dezenas
+  // 1. Busca do Dashboard (Mês/Ano)
   @@index([userId, date]) 
   
-  // 2. Busca de Resumo Financeiro (Somas por tipo): Acelera o groupBy
+  // 2. Busca de Resumo Financeiro (Somas por tipo)
   @@index([userId, type])
 }
 
@@ -76,7 +84,7 @@ model RecurringTransaction {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Otimiza o CRON job para não varrer o banco todo
+  // Otimiza o CRON job
   @@index([active, nextRun])
 }
 
@@ -104,4 +112,24 @@ model Badge {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// --- MODELO: PLANILHA DE PLANEJAMENTO ---
+model MonthlyBudget {
+  id        String   @id @default(cuid())
+  userId    String
+  month     Int      // 0-11
+  year      Int
+  
+  // Armazena a planilha completa (entradas, fixos, diversos) via JSON
+  data      Json     
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Garante apenas um planejamento por mês/ano por usuário
+  @@unique([userId, month, year]) 
+  @@index([userId, month, year])
 }

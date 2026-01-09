@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, Sparkles, Bot, User, RefreshCw, Trash2, MessageSquare } from 'lucide-react';
+import { X, Sparkles, Bot, User, RefreshCw, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { generateFinancialAdviceAction, getAiHistoryAction } from '@/app/actions';
+import { generateFinancialAdviceAction, getAiHistoryAction, clearAiHistoryAction } from '@/app/actions';
 import { toast } from 'sonner';
 
 interface AIReportModalProps {
@@ -93,6 +93,28 @@ export default function AIReportModal({ isOpen, onClose, userName }: AIReportMod
     }
   };
 
+  const handleClearHistory = async () => {
+    if (messages.length === 0) return;
+
+    const confirm = window.confirm("Tens a certeza que queres apagar todo o histórico de conversas?");
+    if (!confirm) return;
+
+    setLoading(true);
+    try {
+      const res = await clearAiHistoryAction('GENERAL');
+      if (res.success) {
+        setMessages([]); // Limpa visualmente imediatamente
+        toast.success("Histórico apagado com sucesso.");
+      } else {
+        toast.error("Erro ao apagar histórico.");
+      }
+    } catch (error) {
+      toast.error("Erro de conexão.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -114,12 +136,28 @@ export default function AIReportModal({ isOpen, onClose, userName }: AIReportMod
               <p className="text-xs text-gray-400">Histórico de Inteligência Artificial</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition p-2 hover:bg-white/10 rounded-full"
-          >
-            <X size={20} />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Botão de Limpar Histórico */}
+            {messages.length > 0 && (
+              <button
+                onClick={handleClearHistory}
+                disabled={loading}
+                className="text-gray-400 hover:text-red-400 transition p-2 hover:bg-red-500/10 rounded-full"
+                title="Limpar Histórico"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+
+            {/* Botão Fechar */}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition p-2 hover:bg-white/10 rounded-full"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Área de Chat (Scrollável) */}
@@ -152,8 +190,8 @@ export default function AIReportModal({ isOpen, onClose, userName }: AIReportMod
 
                 {/* Balão de Texto */}
                 <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed shadow-lg ${isUser
-                    ? 'bg-blue-600/20 border border-blue-500/20 text-blue-100 rounded-tr-sm'
-                    : 'bg-[#2a2438] border border-white/5 text-gray-200 rounded-tl-sm'
+                  ? 'bg-blue-600/20 border border-blue-500/20 text-blue-100 rounded-tr-sm'
+                  : 'bg-[#2a2438] border border-white/5 text-gray-200 rounded-tl-sm'
                   }`}>
                   {isUser ? (
                     <p>{msg.message}</p>

@@ -507,6 +507,25 @@ export async function generateFinancialAdviceAction() {
   }
 }
 
+// --- NOVO: LIMPAR HISTÓRICO ---
+export async function clearAiHistoryAction(context: string = 'GENERAL') {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Auth error' };
+
+  try {
+    await prisma.aiChat.deleteMany({
+      where: { userId, context }
+    });
+    
+    // Revalida para garantir que caches sejam limpos se necessário
+    revalidatePath('/dashboard'); 
+    return { success: true };
+  } catch (error) {
+    console.error("Erro ao limpar histórico:", error);
+    return { success: false, error: 'Erro ao limpar histórico.' };
+  }
+}
+
 // ==========================================
 // 6. CATEGORIAS
 // ==========================================

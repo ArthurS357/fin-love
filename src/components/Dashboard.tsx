@@ -6,7 +6,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
-  Eye, EyeOff
+  Eye, EyeOff, History // <--- 1. Importado o ícone History
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -225,6 +225,17 @@ export default function Dashboard({
             <button onClick={() => setPrivacyMode(!privacyMode)} className="p-2 text-purple-300 hover:text-white transition rounded-full hover:bg-white/5">
               {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
+
+            {/* --- 2. NOVO BOTÃO DE HISTÓRICO AQUI --- */}
+            <button
+              onClick={() => setIsAIModalOpen(true)}
+              className="p-2 text-purple-300 hover:text-white transition rounded-full hover:bg-white/5"
+              title="Histórico de Conversa com IA"
+            >
+              <History size={20} />
+            </button>
+            {/* -------------------------------------- */}
+
             <button onClick={() => setIsAIModalOpen(true)} className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95">
               <Sparkles size={14} /><span className="hidden md:inline">IA</span>
             </button>

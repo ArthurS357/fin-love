@@ -44,6 +44,10 @@ model User {
   aiChats          AiChat[]  // Relação com o novo histórico
   investments      Investment[]
 
+  // Adicione estas linhas:
+  sentMessages     PartnerMessage[] @relation("SentMessages")
+  receivedMessages PartnerMessage[] @relation("ReceivedMessages")
+
   @@index([email]) // Login rápido
 }
 
@@ -69,8 +73,8 @@ model Transaction {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  @@index([userId, date]) 
-  @@index([userId, type])
+  @@index([userId, date]) // Índice composto: Busca por usuário + data é instantânea
+  @@index([userId, type]) // Opcional: Ajuda nos filtros de "Entradas vs Saídas"
   @@index([installmentId]) // Para deletar/buscar todas as parcelas rápido
 }
 
@@ -175,4 +179,22 @@ model Investment {
   updatedAt     DateTime @updatedAt
 
   @@index([userId])
+}
+
+model PartnerMessage {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  
+  message    String   // O texto ou emoji
+  category   String   // LOVE, FINANCE, ALERT
+  read       Boolean  @default(false)
+  
+  createdAt  DateTime @default(now())
+
+  // Relações
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+
+  @@index([receiverId])
 }

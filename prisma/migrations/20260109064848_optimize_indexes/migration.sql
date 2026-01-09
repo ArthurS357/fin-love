@@ -118,6 +118,19 @@ CREATE TABLE "Investment" (
     CONSTRAINT "Investment_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "PartnerMessage" (
+    "id" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "receiverId" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "read" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PartnerMessage_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -163,6 +176,9 @@ CREATE INDEX "AiChat_createdAt_idx" ON "AiChat"("createdAt");
 -- CreateIndex
 CREATE INDEX "Investment_userId_idx" ON "Investment"("userId");
 
+-- CreateIndex
+CREATE INDEX "PartnerMessage_receiverId_idx" ON "PartnerMessage"("receiverId");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -186,3 +202,9 @@ ALTER TABLE "AiChat" ADD CONSTRAINT "AiChat_userId_fkey" FOREIGN KEY ("userId") 
 
 -- AddForeignKey
 ALTER TABLE "Investment" ADD CONSTRAINT "Investment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PartnerMessage" ADD CONSTRAINT "PartnerMessage_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PartnerMessage" ADD CONSTRAINT "PartnerMessage_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

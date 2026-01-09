@@ -1,17 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  ArrowUpCircle, ArrowDownCircle, Search, Filter,
+  ArrowUpCircle, ArrowDownCircle, Search,
   Trash2, Edit2, Calendar, CreditCard, Wallet,
-  PiggyBank, User, Heart, Download
+  PiggyBank, User, Heart, Download, Filter
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { exportTransactionsCsvAction } from '@/app/actions';
 import { toast } from 'sonner';
 
-// Reutilizando a tipagem
 interface Transaction {
   id: string;
   description: string;
@@ -32,31 +31,28 @@ interface HistoryTabProps {
   onDelete: (id: string) => void;
   partnerId?: string;
   partnerName?: string;
-  month: number; // Necessário para a exportação CSV
-  year: number;  // Necessário para a exportação CSV
+  month: number;
+  year: number;
 }
 
-export default function HistoryTab({ 
-  transactions, 
-  onEdit, 
-  onDelete, 
-  partnerId, 
-  partnerName, 
-  month, 
-  year 
+export default function HistoryTab({
+  transactions,
+  onEdit,
+  onDelete,
+  partnerId,
+  partnerName,
+  month,
+  year
 }: HistoryTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'INVESTMENT'>('ALL');
   const [exporting, setExporting] = useState(false);
 
-  // --- Lógica de Exportação CSV ---
   const handleExport = async () => {
     setExporting(true);
     try {
       const res = await exportTransactionsCsvAction(month, year);
-      
       if (res.success && res.csv) {
-        // Cria um Blob e dispara o download via navegador
         const blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -65,32 +61,42 @@ export default function HistoryTab({
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        toast.success("Download iniciado com sucesso!");
+        toast.success("Download iniciado!");
       } else {
-        toast.error("Erro ao gerar o arquivo CSV.");
+        toast.error("Erro ao gerar arquivo.");
       }
     } catch (e) {
-      console.error(e);
-      toast.error("Erro de conexão ao exportar.");
+      toast.error("Erro de conexão.");
     } finally {
       setExporting(false);
     }
   };
 
-  // --- Lógica de Filtros ---
-  const filteredTransactions = transactions.filter(t => {
-    const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.category.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'ALL' || t.type === filterType;
-    return matchesSearch && matchesType;
-  });
+  // 1. Filtragem
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.category.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesType = filterType === 'ALL' || t.type === filterType;
+      return matchesSearch && matchesType;
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, searchTerm, filterType]);
 
-  // Ordenar por data (mais recente primeiro)
-  const sortedTransactions = filteredTransactions.sort((a, b) =>
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  // 2. Agrupamento por Data (NOVO)
+  const groupedTransactions = useMemo(() => {
+    const groups: Record<string, Transaction[]> = {};
 
-  // --- Helpers de Ícones ---
+    filteredTransactions.forEach(t => {
+      const date = new Date(t.date);
+      // Chave para ordenação correta: YYYY-MM-DD
+      const dateKey = format(date, 'yyyy-MM-dd');
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(t);
+    });
+
+    return groups;
+  }, [filteredTransactions]);
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'INCOME': return <ArrowUpCircle className="text-green-400" size={24} />;
@@ -105,12 +111,23 @@ export default function HistoryTab({
     return <Wallet size={12} className="text-gray-400" />;
   };
 
+  // Helper para formatar o cabeçalho da data
+  const formatDateHeader = (dateStr: string) => {
+    const date = new Date(dateStr); // dateStr está em yyyy-MM-dd, seguro para criar Date
+    // Ajuste de fuso horário simples (considerando que a string já representa o dia local desejado)
+    // Para garantir a exibição correta independente do timezone do browser, usamos split
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const localDate = new Date(y, m - 1, d);
+
+    if (isToday(localDate)) return "Hoje";
+    if (isYesterday(localDate)) return "Ontem";
+    return format(localDate, "d 'de' MMMM, EEEE", { locale: ptBR });
+  };
+
   return (
-    <div className="space-y-6">
-      {/* BARRA DE FILTROS E AÇÕES */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg">
-        
-        {/* Campo de Busca */}
+    <div className="space-y-6 pb-20">
+      {/* BARRA DE FILTROS */}
+      <div className="flex flex-col md:flex-row gap-4 justify-between bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg sticky top-24 z-20 backdrop-blur-md bg-opacity-90">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input
@@ -122,33 +139,25 @@ export default function HistoryTab({
           />
         </div>
 
-        {/* Botões de Filtro e Exportar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
-          
-          {/* Botão Exportar CSV (Novo) */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
           <button
             onClick={handleExport}
             disabled={exporting}
-            className={`
-              flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/5 transition-all text-xs font-bold whitespace-nowrap
-              ${exporting ? 'bg-white/5 text-gray-500 cursor-not-allowed' : 'bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white'}
-            `}
-            title="Baixar extrato em CSV"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-all text-xs font-bold whitespace-nowrap"
           >
             <Download size={16} className={exporting ? 'animate-bounce' : ''} />
-            {exporting ? 'Gerando...' : 'Exportar CSV'}
+            {exporting ? '...' : 'CSV'}
           </button>
 
           <div className="w-px h-6 bg-white/10 mx-1 hidden md:block" />
 
-          {/* Filtros de Tipo */}
           {['ALL', 'INCOME', 'EXPENSE', 'INVESTMENT'].map((type) => (
             <button
               key={type}
               onClick={() => setFilterType(type as any)}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${filterType === type
-                  ? 'bg-purple-600 text-white shadow-lg'
-                  : 'bg-[#130b20] text-gray-400 hover:text-white border border-white/5'
+                ? 'bg-purple-600 text-white shadow-lg'
+                : 'bg-[#130b20] text-gray-400 hover:text-white border border-white/5'
                 }`}
             >
               {type === 'ALL' ? 'Todos' : type === 'INCOME' ? 'Entradas' : type === 'EXPENSE' ? 'Saídas' : 'Invest.'}
@@ -157,100 +166,107 @@ export default function HistoryTab({
         </div>
       </div>
 
-      {/* LISTA DE TRANSAÇÕES */}
-      <div className="space-y-3">
-        {sortedTransactions.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p>Nenhuma transação encontrada para este filtro.</p>
+      {/* LISTA AGRUPADA */}
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+        {Object.keys(groupedTransactions).length === 0 ? (
+          <div className="text-center py-12">
+            <div className="bg-white/5 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Filter className="text-gray-500" size={32} />
+            </div>
+            <p className="text-gray-400 font-medium">Nenhuma transação encontrada.</p>
+            <p className="text-gray-600 text-sm mt-1">Tente mudar os filtros ou adicione uma nova.</p>
           </div>
         ) : (
-          sortedTransactions.map((t) => {
-            // Identifica quem fez a transação
-            const isPartner = partnerId && t.userId === partnerId;
-            const ownerName = isPartner ? (partnerName?.split(' ')[0] || 'Parceiro') : 'Você';
-            const OwnerIcon = isPartner ? Heart : User;
+          Object.entries(groupedTransactions).map(([dateKey, txs]) => (
+            <div key={dateKey} className="space-y-3">
+              {/* CABEÇALHO DA DATA */}
+              <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider px-2 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-500/50"></span>
+                {formatDateHeader(dateKey)}
+              </h3>
 
-            return (
-              <div
-                key={t.id}
-                className="group bg-[#1f1630] hover:bg-[#251a3a] border border-white/5 p-4 rounded-2xl flex items-center justify-between transition-all hover:shadow-lg hover:border-purple-500/20 relative overflow-hidden"
-              >
-                {/* Indicador lateral de cor */}
-                <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
+              {/* TRANSAÇÕES DO DIA */}
+              <div className="space-y-2">
+                {txs.map((t) => {
+                  const isPartner = partnerId && t.userId === partnerId;
+                  const ownerName = isPartner ? (partnerName?.split(' ')[0] || 'Parceiro') : 'Você';
+                  const OwnerIcon = isPartner ? Heart : User;
 
-                <div className="flex items-center gap-4 pl-2">
-                  <div className={`p-3 rounded-full bg-[#130b20] border border-white/5 shadow-inner`}>
-                    {getIcon(t.type)}
-                  </div>
+                  return (
+                    <div
+                      key={t.id}
+                      className="group bg-[#1f1630] hover:bg-[#251a3a] border border-white/5 p-4 rounded-2xl flex items-center justify-between transition-all hover:shadow-lg hover:border-purple-500/20 relative overflow-hidden"
+                    >
+                      {/* Borda lateral colorida */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
 
-                  <div>
-                    <h4 className="font-bold text-gray-200 text-sm md:text-base flex items-center gap-2">
-                      {t.description}
-                      {t.installments && t.installments > 1 && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-gray-700 rounded-full text-gray-300">
-                          {t.currentInstallment}/{t.installments}
-                        </span>
-                      )}
-                    </h4>
-                    <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
-                      <span className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md">
-                        <Calendar size={10} />
-                        {format(new Date(t.date), "d 'de' MMM", { locale: ptBR })}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        {getPaymentIcon(t.paymentMethod)}
-                        {t.category}
-                      </span>
-                      {partnerId && (
-                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${isPartner
-                            ? 'bg-pink-500/10 border-pink-500/20 text-pink-300'
-                            : 'bg-purple-500/10 border-purple-500/20 text-purple-300'
-                          }`}>
-                          <OwnerIcon size={10} />
-                          {ownerName}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-4 pl-2">
+                        <div className={`p-3 rounded-2xl bg-[#130b20] border border-white/5 shadow-inner group-hover:scale-105 transition-transform`}>
+                          {getIcon(t.type)}
+                        </div>
+
+                        <div>
+                          <h4 className="font-bold text-gray-200 text-sm md:text-base flex items-center gap-2">
+                            {t.description}
+                            {t.installments && t.installments > 1 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-gray-700/50 border border-white/10 rounded-full text-gray-300">
+                                {t.currentInstallment}/{t.installments}
+                              </span>
+                            )}
+                          </h4>
+                          <div className="flex items-center gap-3 text-xs text-gray-400 mt-1.5">
+                            <span className="flex items-center gap-1">
+                              {getPaymentIcon(t.paymentMethod)}
+                              {t.category}
+                            </span>
+                            {partnerId && (
+                              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${isPartner
+                                ? 'bg-pink-500/10 border-pink-500/20 text-pink-300'
+                                : 'bg-purple-500/10 border-purple-500/20 text-purple-300'
+                                }`}>
+                                <OwnerIcon size={8} />
+                                {ownerName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className={`font-bold whitespace-nowrap text-sm md:text-base ${t.type === 'INCOME' ? 'text-green-400' : t.type === 'EXPENSE' ? 'text-red-400' : 'text-purple-400'
+                            }`}>
+                            {t.type === 'EXPENSE' ? '- ' : '+ '}
+                            R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </p>
+                          <p className={`text-[10px] font-medium ${t.isPaid ? 'text-green-500/60' : 'text-yellow-500/60'}`}>
+                            {t.isPaid ? 'Pago' : 'Pendente'}
+                          </p>
+                        </div>
+
+                        {!isPartner ? (
+                          <div className="flex gap-1 md:gap-2 opacity-0 group-hover:opacity-100 transition-opacity absolute md:static right-4 bg-[#1f1630] md:bg-transparent p-1 md:p-0 rounded-lg shadow-xl md:shadow-none border border-white/10 md:border-none translate-x-2 group-hover:translate-x-0">
+                            <button
+                              onClick={() => onEdit(t)}
+                              className="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-xl transition"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              onClick={() => onDelete(t.id)}
+                              className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ) : <div className="w-0 md:w-[72px]"></div>}
+                      </div>
                     </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className={`font-bold whitespace-nowrap ${t.type === 'INCOME' ? 'text-green-400' : t.type === 'EXPENSE' ? 'text-red-400' : 'text-purple-400'
-                      }`}>
-                      {t.type === 'EXPENSE' ? '- ' : '+ '}
-                      R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-[10px] text-gray-500">
-                      {t.isPaid ? 'Pago' : 'Pendente'}
-                    </p>
-                  </div>
-
-                  {/* Ações (Editar/Excluir) - Apenas se não for do parceiro (regra de negócio comum) */}
-                  {!isPartner ? (
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => onEdit(t)}
-                        className="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-full transition"
-                        title="Editar"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDelete(t.id)}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-full transition"
-                        title="Excluir"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="w-[72px]"></div> // Espaçador para manter alinhamento
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            );
-          })
+            </div>
+          ))
         )}
       </div>
     </div>

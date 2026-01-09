@@ -1,45 +1,71 @@
 'use client'
 
-import React, { useState } from 'react';
-import { Heart, Link as LinkIcon, AlertCircle, CheckCircle2, UserCheck, Unlink, PiggyBank, PlusCircle, Edit3, X, Check } from 'lucide-react';
-import { linkPartnerAction, unlinkPartnerAction, addSavingsAction, updateSavingsGoalNameAction } from '@/app/actions';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Heart, Link as LinkIcon, UserCheck, PiggyBank, PlusCircle,
+  Edit3, X, Check, Send, Zap, BellRing, TrendingUp
+} from 'lucide-react';
+import {
+  linkPartnerAction, unlinkPartnerAction,
+  addSavingsAction, updateSavingsGoalNameAction,
+  sendPartnerMessageAction, getPartnerMessagesAction
+} from '@/app/actions';
 import { toast } from 'sonner';
+import { formatCurrency } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface PartnerTabProps {
   partner?: { name: string | null; email: string } | null;
   totalSavings?: number;
-  savingsGoalName?: string; // NOVO PROP
+  savingsGoalName?: string;
 }
 
 export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName = "Caixinha dos Sonhos" }: PartnerTabProps) {
-  // ... (Estados existentes: email, status, loadingLink, amount, desc, loadingSavings)
   const [email, setEmail] = useState('');
-  const [status, setStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
   const [loadingLink, setLoadingLink] = useState(false);
   const [amount, setAmount] = useState('');
   const [desc, setDesc] = useState('');
   const [loadingSavings, setLoadingSavings] = useState(false);
 
-  // Estados para edição do nome
+  // Estados de Edição
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(savingsGoalName);
   const [loadingName, setLoadingName] = useState(false);
 
-  // ... (Handlers existentes: handleLink, handleUnlink, handleAddSavings)
+  // Estados de Mensagens
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loadingMsg, setLoadingMsg] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Carregar mensagens periodicamente ou ao montar
+  const fetchMessages = async () => {
+    const msgs = await getPartnerMessagesAction();
+    setMessages(msgs);
+  };
+
+  useEffect(() => {
+    if (partner) fetchMessages();
+  }, [partner]);
+
+  // Scroll automático para última mensagem
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Handlers
   const handleLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoadingLink(true);
-    setStatus({ type: null, message: '' });
     const formData = new FormData();
     formData.append('email', email);
     const result = await linkPartnerAction(formData);
-    if (result.error) {
-      setStatus({ type: 'error', message: result.error });
-      toast.error(result.error);
-    } else if (result.success) {
-      setStatus({ type: 'success', message: result.message || 'Conectado!' });
+    if (result.success) {
       toast.success(result.message);
       setEmail('');
+    } else {
+      toast.error(result.error);
     }
     setLoadingLink(false);
   };
@@ -58,28 +84,26 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
     setLoadingSavings(true);
     const formData = new FormData();
     formData.append('amount', amount);
-    formData.append('description', desc || 'Investimento Caixinha');
+    formData.append('description', desc || 'Caixinha');
     const res = await addSavingsAction(formData);
     if (res.success) {
-      toast.success('Dinheiro guardado!');
+      toast.success('Guardado!');
       setAmount('');
       setDesc('');
     } else {
-      toast.error(res.error || 'Erro.');
+      toast.error(res.error);
     }
     setLoadingSavings(false);
   };
 
-  // NOVO: Handler para editar nome
   const handleSaveName = async () => {
     if (!tempName.trim()) return;
     setLoadingName(true);
     const formData = new FormData();
     formData.append('name', tempName);
     const res = await updateSavingsGoalNameAction(formData);
-    
     if (res.success) {
-      toast.success('Nome da caixinha atualizado!');
+      toast.success('Nome atualizado!');
       setIsEditingName(false);
     } else {
       toast.error(res.error);
@@ -87,152 +111,243 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
     setLoadingName(false);
   };
 
-  if (partner) {
+  const handleSendMessage = async (category: 'LOVE' | 'FINANCE' | 'ALERT', text: string) => {
+    // Optimistic UI update
+    const tempMsg = {
+      id: Math.random().toString(),
+      message: text,
+      category,
+      senderId: 'me', // placeholder
+      createdAt: new Date()
+    };
+    setMessages(prev => [...prev, tempMsg]);
+
+    const res = await sendPartnerMessageAction(category, text);
+    if (!res.success) toast.error("Erro ao enviar.");
+    else fetchMessages(); // Atualiza real
+  };
+
+  // Se NÃO conectado
+  if (!partner) {
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-right-8 pb-24 md:pb-0">
-        
-        {/* Header Conectado */}
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#1f1630] to-[#2a1e3d] p-6 rounded-3xl border border-white/5 shadow-xl">
-          <div>
-            <h2 className="text-2xl font-bold text-white mb-1 flex items-center gap-2">
-              <UserCheck className="text-green-400" size={24} /> Conexão Ativa
-            </h2>
-            <p className="text-gray-400 text-sm">
-              Sincronizado com <span className="text-pink-400 font-semibold">{partner.name || partner.email}</span>
-            </p>
-          </div>
-          <div className="hidden md:block bg-pink-500/10 p-3 rounded-full ring-1 ring-pink-500/30">
-            <Heart className="text-pink-500 fill-pink-500/20" size={32} />
+      <div className="flex flex-col items-center justify-center py-12 animate-in fade-in zoom-in-95 duration-500">
+        <div className="relative mb-8 group">
+          <div className="absolute inset-0 bg-pink-500 blur-2xl opacity-20 group-hover:opacity-40 transition-opacity rounded-full" />
+          <div className="bg-[#1f1630] p-8 rounded-full border border-white/10 relative z-10 shadow-2xl">
+            <Heart size={64} className="text-pink-500 animate-pulse" />
           </div>
         </div>
 
-        {/* Área da Caixinha */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <h2 className="text-3xl font-bold text-white mb-3 text-center">Sincronia de Casal</h2>
+        <p className="text-gray-400 mb-8 text-center max-w-sm">
+          Conecte-se com seu amor para somar finanças, criar metas juntos e trocar incentivos.
+        </p>
 
-          {/* Card Visualização */}
-          <div className="bg-gradient-to-br from-pink-900/40 to-purple-900/40 border border-white/10 p-6 rounded-3xl relative overflow-hidden group shadow-2xl backdrop-blur-sm">
-            <div className="absolute -top-10 -right-10 bg-pink-500/20 w-40 h-40 rounded-full blur-[60px]" />
-            
-            <div className="flex items-center justify-between mb-8 relative z-10">
-              {isEditingName ? (
-                <div className="flex items-center gap-2 w-full mr-4">
-                  <input 
-                    value={tempName}
-                    onChange={(e) => setTempName(e.target.value)}
-                    className="w-full bg-black/20 text-white font-bold text-lg px-2 py-1 rounded border border-white/20 focus:border-pink-500 outline-none"
-                    autoFocus
-                  />
-                  <button onClick={handleSaveName} disabled={loadingName} className="p-2 bg-green-500/20 hover:bg-green-500 text-green-400 hover:text-white rounded-lg transition"><Check size={16}/></button>
-                  <button onClick={() => setIsEditingName(false)} className="p-2 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white rounded-lg transition"><X size={16}/></button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 group/edit cursor-pointer" onClick={() => { setTempName(savingsGoalName); setIsEditingName(true); }}>
-                  <h3 className="text-xl font-bold text-white truncate">{savingsGoalName}</h3>
-                  <Edit3 size={14} className="text-gray-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
-                </div>
-              )}
-              <div className="bg-white/10 p-2 rounded-lg text-white">
-                <PiggyBank size={24} />
-              </div>
-            </div>
-
-            <div className="relative z-10">
-              <p className="text-pink-200/70 text-xs uppercase tracking-wider mb-1">Saldo Compartilhado</p>
-              <p className="text-4xl md:text-5xl font-bold text-white tracking-tight">
-                R$ {totalSavings.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-              </p>
-            </div>
+        <form onSubmit={handleLink} className="w-full max-w-sm space-y-4">
+          <div className="relative group">
+            <LinkIcon className="absolute left-4 top-4 text-gray-500 group-focus-within:text-pink-500 transition-colors" size={20} />
+            <input
+              type="email"
+              required
+              placeholder="Email do parceiro(a)"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-[#130b20] border border-white/10 text-white pl-12 pr-4 py-4 rounded-2xl focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none transition shadow-lg"
+            />
           </div>
-
-          {/* Formulário */}
-          <div className="bg-[#1f1630] border border-white/5 p-6 rounded-3xl shadow-xl flex flex-col justify-center">
-            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-              <PlusCircle className="text-pink-400" size={20} />
-              Adicionar Saldo
-            </h3>
-
-            <form onSubmit={handleAddSavings} className="space-y-4">
-               {/* Mesma lógica de formulário anterior, apenas visual melhorado nos inputs */}
-               {/* ... */}
-               <div>
-                <div className="flex gap-3">
-                  <div className="relative flex-1">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">R$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={amount}
-                      onChange={e => setAmount(e.target.value)}
-                      placeholder="0,00"
-                      className="w-full bg-[#130b20] text-white font-bold text-lg pl-10 pr-4 py-4 rounded-2xl border border-gray-700 focus:border-pink-500 outline-none transition"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loadingSavings}
-                    className="bg-pink-600 hover:bg-pink-500 text-white font-bold px-6 rounded-2xl transition shadow-[0_0_20px_rgba(236,72,153,0.3)] disabled:opacity-50"
-                  >
-                    Guardar
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Descrição (Ex: Jantar, Viagem...)"
-                  value={desc}
-                  onChange={e => setDesc(e.target.value)}
-                  className="w-full mt-3 bg-transparent text-gray-400 text-sm px-2 py-2 border-b border-gray-800 focus:border-pink-500 outline-none transition placeholder:text-gray-600"
-                />
-              </div>
-            </form>
-          </div>
-        </div>
-
-        {/* Rodapé */}
-        <div className="flex justify-center pt-6">
-          <button onClick={handleUnlink} disabled={loadingLink} className="text-xs text-red-400/60 hover:text-red-400 hover:underline transition">
-             {loadingLink ? 'Processando...' : 'Desconectar do parceiro'}
+          <button
+            type="submit"
+            disabled={loadingLink}
+            className="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-4 rounded-2xl transition shadow-lg shadow-pink-900/20 active:scale-95 disabled:opacity-70 disabled:scale-100"
+          >
+            {loadingLink ? 'Conectando...' : 'Enviar Convite'}
           </button>
-        </div>
+        </form>
       </div>
     );
   }
 
-  // Se não conectado, mantém o código antigo (Login form)
+  // SE CONECTADO
   return (
-    <div className="text-center py-10 animate-in fade-in slide-in-from-right-8">
-      {/* ... (código do form de conexão inalterado, exceto estilos de container) */}
-       <div className="max-w-md mx-auto bg-[#1f1630] p-8 rounded-3xl border border-white/5 shadow-2xl">
-          <div className="inline-flex items-center justify-center p-5 bg-pink-500/10 rounded-full mb-6 ring-1 ring-pink-500/30">
-            <Heart size={48} className="text-pink-500" />
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Sincronia</h2>
-          <p className="text-gray-400 mb-8 text-sm">Conecte-se para somar forças.</p>
-          
-          <form onSubmit={handleLink} className="space-y-4">
-            <div className="relative">
-              <LinkIcon className="absolute left-4 top-4 text-gray-500" size={18} />
-              <input
-                type="email"
-                required
-                placeholder="Email do parceiro(a)"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#130b20] border border-gray-700 text-white pl-11 pr-4 py-3.5 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none transition"
-              />
-            </div>
-            
-            {status.message && (
-              <div className={`text-xs p-3 rounded-lg ${status.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
-                {status.message}
-              </div>
-            )}
+    <div className="space-y-6 pb-24 md:pb-0 animate-in fade-in slide-in-from-right-8 duration-500">
 
-            <button type="submit" disabled={loadingLink} className="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-pink-900/20">
-              {loadingLink ? '...' : 'Conectar'}
+      {/* --- HEADER: STATUS --- */}
+      <div className="bg-gradient-to-r from-[#1f1630] to-[#251a3a] p-1 rounded-3xl border border-white/5 shadow-xl">
+        <div className="bg-[#130b20]/50 backdrop-blur-md rounded-[20px] p-6 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              <p className="text-xs font-bold text-green-400 uppercase tracking-wider">Conexão Ativa</p>
+            </div>
+            <h2 className="text-xl font-bold text-white">
+              Você & {partner.name?.split(' ')[0] || 'Parceiro'}
+            </h2>
+          </div>
+          <div className="flex -space-x-3">
+            <div className="w-10 h-10 rounded-full bg-purple-600 border-2 border-[#130b20] flex items-center justify-center text-xs font-bold text-white">EU</div>
+            <div className="w-10 h-10 rounded-full bg-pink-600 border-2 border-[#130b20] flex items-center justify-center text-xs font-bold text-white">❤️</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* --- COLUNA 1: CAIXINHA & METAS --- */}
+        <div className="space-y-6">
+          {/* Card Principal da Caixinha */}
+          <div className="bg-gradient-to-br from-pink-600 via-purple-600 to-indigo-600 p-6 rounded-3xl text-white shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-white/20 transition-colors duration-700" />
+
+            <div className="relative z-10">
+              <div className="flex justify-between items-start mb-8">
+                {isEditingName ? (
+                  <div className="flex items-center gap-2 bg-black/20 p-1 rounded-lg backdrop-blur-sm">
+                    <input
+                      value={tempName}
+                      onChange={(e) => setTempName(e.target.value)}
+                      className="bg-transparent font-bold text-lg outline-none w-full min-w-[150px]"
+                      autoFocus
+                    />
+                    <button onClick={handleSaveName} disabled={loadingName} className="p-1 hover:text-green-300"><Check size={18} /></button>
+                    <button onClick={() => setIsEditingName(false)} className="p-1 hover:text-red-300"><X size={18} /></button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 cursor-pointer group/edit opacity-90 hover:opacity-100" onClick={() => { setTempName(savingsGoalName); setIsEditingName(true); }}>
+                    <PiggyBank className="text-pink-200" size={24} />
+                    <h3 className="font-bold text-lg">{savingsGoalName}</h3>
+                    <Edit3 size={14} className="opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                  </div>
+                )}
+                <div className="text-xs bg-white/20 px-2 py-1 rounded-full font-medium backdrop-blur-sm">
+                  Meta Compartilhada
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-sm text-pink-100 font-medium">Saldo Acumulado</p>
+                <p className="text-4xl md:text-5xl font-bold tracking-tight">
+                  {formatCurrency(totalSavings)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Formulário Rápido */}
+          <div className="bg-[#1f1630] p-5 rounded-3xl border border-white/5">
+            <h4 className="text-sm font-bold text-gray-400 mb-4 flex items-center gap-2">
+              <PlusCircle size={16} className="text-purple-400" /> Adicionar à Caixinha
+            </h4>
+            <form onSubmit={handleAddSavings} className="flex gap-3">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-xs">R$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full bg-[#130b20] border border-white/10 rounded-xl pl-8 pr-3 py-3 text-white text-sm focus:border-purple-500 outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loadingSavings}
+                className="bg-white/5 hover:bg-white/10 border border-white/5 text-white p-3 rounded-xl transition disabled:opacity-50"
+              >
+                {loadingSavings ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={18} />}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* --- COLUNA 2: LOVE ALERTS (NOVO) --- */}
+        <div className="bg-[#1f1630] rounded-3xl border border-white/5 flex flex-col h-[500px] lg:h-auto overflow-hidden shadow-lg relative">
+          {/* Header do Chat */}
+          <div className="p-4 border-b border-white/5 bg-[#251a3a]/50 backdrop-blur-sm flex justify-between items-center z-10">
+            <h3 className="font-bold text-white flex items-center gap-2">
+              <Zap className="text-yellow-400 fill-yellow-400" size={18} /> Love Alerts
+            </h3>
+            <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-1 rounded-full">Histórico Recente</span>
+          </div>
+
+          {/* Área de Mensagens (Timeline) */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" ref={scrollRef}>
+            {messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-60">
+                <BellRing size={32} className="mb-2 text-purple-400" />
+                <p className="text-xs">Envie um toque para começar!</p>
+              </div>
+            ) : (
+              messages.map((msg, idx) => {
+                // Se senderId for o meu ID (no caso aqui simulamos ou pegamos do contexto, 
+                // mas para simplificar visualmente na lista, assumimos uma lógica de alinhamento)
+                // *Nota: Na implementação real, compare msg.senderId === userId*
+                const isLove = msg.category === 'LOVE';
+                const isAlert = msg.category === 'ALERT';
+
+                return (
+                  <div key={idx} className={`flex flex-col animate-in slide-in-from-bottom-2 ${msg.senderId === 'me' ? 'items-end' : 'items-start'}`}>
+                    <div className={`
+                      max-w-[85%] rounded-2xl p-3 text-sm relative shadow-md
+                      ${isLove ? 'bg-pink-500/10 border border-pink-500/20 text-pink-100' :
+                        isAlert ? 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-100' :
+                          'bg-emerald-500/10 border border-emerald-500/20 text-emerald-100'}
+                    `}>
+                      <p className="leading-relaxed">{msg.message}</p>
+                      <span className="text-[9px] opacity-50 block mt-1 text-right">
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Botões de Ação Rápida */}
+          <div className="p-4 bg-[#130b20] border-t border-white/5 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => handleSendMessage('LOVE', 'Te amo! ❤️')}
+              className="bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/20 p-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Heart size={16} className="fill-pink-500/20" /> Te amo!
             </button>
-          </form>
-       </div>
+
+            <button
+              onClick={() => handleSendMessage('ALERT', 'Não esquece de registrar os gastos! 💸')}
+              className="bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 p-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 active:scale-95"
+            >
+              <BellRing size={16} /> Registra aí!
+            </button>
+
+            <button
+              onClick={() => handleSendMessage('FINANCE', 'Bora investir? 📈')}
+              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 p-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 active:scale-95"
+            >
+              <TrendingUp size={16} /> Bora investir?
+            </button>
+
+            <button
+              onClick={() => handleSendMessage('LOVE', 'Saudades de você... 🥺')}
+              className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 p-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Zap size={16} /> Saudades...
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Footer Desconectar */}
+      <div className="flex justify-center pt-8 border-t border-white/5">
+        <button onClick={handleUnlink} disabled={loadingLink} className="text-xs text-red-400/40 hover:text-red-400 hover:underline transition">
+          Desconectar parceria
+        </button>
+      </div>
     </div>
   );
 }

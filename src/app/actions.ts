@@ -777,34 +777,46 @@ const BADGES_RULES = [
 export async function checkBadgesAction() {
   const userId = await getUserId();
   if (!userId) return;
+
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { transactions: true, badges: true, categories: true }
-    });
-    if (!user) return;
+    // 1. Busca dados otimizados em paralelo (sem carregar arrays gigantes)
+    const [earnedBadges, trxCount, userStats, investments, categoriesCount] = await Promise.all([
+      prisma.badge.findMany({ where: { userId }, select: { code: true } }),
+      prisma.transaction.count({ where: { userId } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } }),
+      prisma.transaction.aggregate({
+        where: { userId, type: 'INVESTMENT' },
+        _sum: { amount: true }
+      }),
+      prisma.category.count({ where: { userId } })
+    ]);
 
-    const earnedCodes = user.badges.map(b => b.code);
+    const earnedCodes = earnedBadges.map(b => b.code);
     const newBadges = [];
+    const totalSaved = Number(investments._sum.amount || 0);
 
-    if (user.transactions.length > 0 && !earnedCodes.includes('FIRST_TRX')) {
+    // 2. Verifica as regras com os contadores
+    if (trxCount > 0 && !earnedCodes.includes('FIRST_TRX')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'FIRST_TRX')!);
     }
-    if (user.partnerId && !earnedCodes.includes('COUPLE_GOALS')) {
+
+    if (userStats?.partnerId && !earnedCodes.includes('COUPLE_GOALS')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'COUPLE_GOALS')!);
     }
-    const hasInvestment = user.transactions.some(t => t.type === 'INVESTMENT');
-    if (hasInvestment && !earnedCodes.includes('SAVER_1')) {
+
+    if (totalSaved > 0 && !earnedCodes.includes('SAVER_1')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'SAVER_1')!);
     }
-    const totalSaved = user.transactions.filter(t => t.type === 'INVESTMENT').reduce((acc, t) => acc + Number(t.amount), 0);
+
     if (totalSaved >= 1000 && !earnedCodes.includes('BIG_SAVER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'BIG_SAVER')!);
     }
-    if (user.categories.length > 0 && !earnedCodes.includes('CAT_MASTER')) {
+
+    if (categoriesCount > 0 && !earnedCodes.includes('CAT_MASTER')) {
       newBadges.push(BADGES_RULES.find(b => b.code === 'CAT_MASTER')!);
     }
 
+    // 3. Salva se houver novidades
     if (newBadges.length > 0) {
       for (const badge of newBadges) {
         await prisma.badge.create({
@@ -957,10 +969,16 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 export async function updateProfileNameAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Não autorizado' };
+
   const name = formData.get('name') as string;
   if (!name || name.length < 3) return { error: 'Nome inválido.' };
+
   await prisma.user.update({ where: { id: userId }, data: { name } });
+
+  // --- CORREÇÃO: Invalidar a TAG específica do usuário ---
+  revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
+
   return { success: true, message: 'Nome atualizado!' };
 }
 
@@ -1132,4 +1150,57 @@ export async function deleteInvestmentAction(id: string) {
   } catch (error) {
     return { error: 'Erro ao excluir.' };
   }
+}
+
+// ==========================================
+// 12. MENSAGENS DO PARCEIRO (NOVO)
+// ==========================================
+
+export async function sendPartnerMessageAction(category: 'LOVE' | 'FINANCE' | 'ALERT', message: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+  if (!user?.partnerId) return { error: 'Sem parceiro conectado.' };
+
+  try {
+    await prisma.partnerMessage.create({
+      data: {
+        senderId: userId,
+        receiverId: user.partnerId,
+        category,
+        message
+      }
+    });
+
+    // --- CORREÇÃO AQUI: Adicionado 'max' ---
+    revalidateTag(`dashboard:${user.partnerId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'max');
+    // ---------------------------------------
+
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Enviado!' };
+  } catch (error) {
+    return { error: 'Erro ao enviar.' };
+  }
+}
+
+export async function getPartnerMessagesAction() {
+  const userId = await getUserId();
+  if (!userId) return [];
+
+  // Busca as últimas 10 mensagens (recebidas OU enviadas) para o chat
+  const messages = await prisma.partnerMessage.findMany({
+    where: {
+      OR: [
+        { receiverId: userId },
+        { senderId: userId }
+      ]
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    include: { sender: { select: { name: true } } }
+  });
+
+  return messages.reverse(); // Para mostrar a mais antiga no topo (estilo chat) ou mantém desc para timeline
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   User, Lock, Trash2, Save, LogOut, ShieldCheck,
-  Trophy, Medal, Star, Sparkles, Loader2
+  Trophy, Medal, Star, Sparkles, Loader2, Mail, Key
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -35,19 +35,30 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
     });
   }, []);
 
-  // Lógica de Nível Baseada em Conquistas
+  // Lógica de Nível
   const userLevel = badges.length >= 5 ? 'Lendário' : badges.length >= 3 ? 'Expert' : 'Iniciante';
 
-  // Cor do nível
-  const levelColor = badges.length >= 5 ? 'text-yellow-400' : badges.length >= 3 ? 'text-purple-400' : 'text-blue-400';
-  const levelBorder = badges.length >= 5 ? 'border-yellow-500/20 bg-yellow-500/10' : badges.length >= 3 ? 'border-purple-500/20 bg-purple-500/10' : 'border-blue-500/20 bg-blue-500/10';
+  // Cores dinâmicas para o nível
+  const getLevelStyles = () => {
+    if (badges.length >= 5) return { color: 'text-yellow-400', bg: 'bg-yellow-500', border: 'border-yellow-500/50', shadow: 'shadow-yellow-500/20' };
+    if (badges.length >= 3) return { color: 'text-purple-400', bg: 'bg-purple-500', border: 'border-purple-500/50', shadow: 'shadow-purple-500/20' };
+    return { color: 'text-blue-400', bg: 'bg-blue-500', border: 'border-blue-500/50', shadow: 'shadow-blue-500/20' };
+  };
+
+  const levelStyle = getLevelStyles();
 
   const handleUpdateName = async (formData: FormData) => {
     setSavingName(true);
     const res = await updateProfileNameAction(formData);
     setSavingName(false);
-    if (res.error) toast.error(res.error);
-    else toast.success('Nome atualizado!');
+
+    if (res.error) {
+      toast.error(res.error);
+    } else {
+      toast.success('Nome atualizado!');
+      // --- CORREÇÃO IMPORTANTE: Força a atualização da interface ---
+      router.refresh();
+    }
   };
 
   const handleUpdatePassword = async (formData: FormData) => {
@@ -63,7 +74,6 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
 
   const handleDeleteAccount = async () => {
     if (!confirm("TEM CERTEZA? Essa ação é irreversível e apagará todos os seus dados.")) return;
-
     setIsDeleting(true);
     const res = await deleteAccountAction();
     if (res?.error) {
@@ -74,168 +84,199 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
     }
   };
 
+  // Avatar baseado nas iniciais
+  const initials = userName
+    .split(' ')
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   return (
-    <div className="space-y-8 max-w-2xl mx-auto pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 pb-24 md:pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-      {/* HEADER DO PERFIL */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">Meu Perfil</h2>
-          <p className="text-gray-400 text-sm">Gerencie suas conquistas e segurança.</p>
-        </div>
+      {/* --- HEADER COM STATUS --- */}
+      <div className="bg-[#1f1630] rounded-3xl p-6 border border-white/5 relative overflow-hidden shadow-xl">
+        <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-[100px] opacity-20 pointer-events-none ${levelStyle.bg}`} />
 
-        {/* CARD DE NÍVEL (Usa Medal e Sparkles) */}
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full border shadow-lg backdrop-blur-md ${levelBorder}`}>
-          <div className="relative">
-            <Medal size={18} className={levelColor} />
-            <Sparkles size={10} className="absolute -top-1 -right-1 text-white animate-pulse" />
+        <div className="flex flex-col sm:flex-row items-center gap-6 relative z-10">
+          {/* Avatar Grande */}
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold border-2 ${levelStyle.border} bg-white/5 text-white shadow-[0_0_30px_rgba(0,0,0,0.3)]`}>
+            {initials}
           </div>
-          <span className={`text-xs font-bold uppercase tracking-wider ${levelColor}`}>
-            Nível {userLevel}
-          </span>
-        </div>
-      </div>
 
-      {/* SEÇÃO 1: GAMIFICAÇÃO (Usa Trophy e Star) */}
-      <div className="bg-gradient-to-br from-[#1f1630] to-[#2d2440] p-6 rounded-3xl border border-white/5 shadow-xl relative overflow-hidden group">
-        {/* Efeito de fundo */}
-        <div className="absolute top-0 right-0 w-40 h-40 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 transition-all duration-700 group-hover:bg-yellow-500/20"></div>
-
-        <div className="flex items-center gap-3 mb-6 relative z-10 border-b border-white/5 pb-4">
-          <div className="p-2 bg-yellow-500/10 rounded-lg">
-            <Trophy className="text-yellow-400" size={24} />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-white leading-tight">Sala de Troféus</h2>
-            <p className="text-xs text-gray-400">{badges.length} conquista(s) desbloqueada(s)</p>
-          </div>
-        </div>
-
-        {loadingBadges ? (
-          <div className="h-24 flex items-center justify-center text-gray-500 text-sm animate-pulse bg-white/5 rounded-2xl">
-            <Loader2 className="animate-spin mr-2" size={18} /> Carregando...
-          </div>
-        ) : badges.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm bg-black/20 rounded-2xl border border-dashed border-white/10 flex flex-col items-center gap-3">
-            <div className="p-3 bg-white/5 rounded-full">
-              <Star className="text-gray-600" size={24} />
-            </div>
+          <div className="flex-1 text-center sm:text-left space-y-2">
             <div>
-              <p className="font-medium text-gray-300">Sua estante está vazia.</p>
-              <p className="text-xs mt-1 text-gray-500">Use o app para desbloquear prêmios!</p>
+              <h2 className="text-2xl font-bold text-white">{userName}</h2>
+              <p className="text-gray-400 text-sm flex items-center justify-center sm:justify-start gap-1.5">
+                <Mail size={14} /> {userEmail}
+              </p>
+            </div>
+
+            {/* Badge de Nível */}
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-black/20 backdrop-blur-md ${levelStyle.border} ${levelStyle.shadow} shadow-lg`}>
+              <Medal size={14} className={levelStyle.color} />
+              <span className={`text-xs font-bold uppercase tracking-wider ${levelStyle.color}`}>
+                Nível {userLevel}
+              </span>
+              <Sparkles size={10} className="text-white animate-pulse" />
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 relative z-10">
-            {badges.map((badge) => (
-              <div key={badge.id} className="bg-[#130b20]/80 p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center gap-3 hover:bg-white/10 transition-all group/badge hover:-translate-y-1 hover:shadow-lg hover:shadow-purple-500/10 duration-300">
-                <div className="text-3xl drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] group-hover/badge:scale-110 transition-transform duration-300">
-                  {badge.icon}
-                </div>
-                <div>
-                  <p className="font-bold text-xs text-white group-hover/badge:text-yellow-300 transition-colors">{badge.name}</p>
-                  <p className="text-[10px] text-gray-400 leading-tight mt-1 opacity-80">{badge.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+
+          {/* Botão Sair Rápido */}
+          <button
+            onClick={() => logoutUser()}
+            className="p-3 rounded-xl bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition border border-white/5 hover:border-red-500/20 group"
+            title="Sair"
+          >
+            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
+          </button>
+        </div>
       </div>
 
-      {/* SEÇÃO 2: DADOS PESSOAIS */}
-      <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
-        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-          <User className="text-purple-400" size={20} /> Dados Pessoais
-        </h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <form action={handleUpdateName} className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Email</label>
-            <input
-              disabled
-              value={userEmail}
-              className="mt-1 w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-gray-400 cursor-not-allowed text-sm"
-            />
+        {/* --- COLUNA 1: CONQUISTAS (GAMIFICAÇÃO) --- */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg h-full flex flex-col">
+            <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+              <div className="p-2 bg-yellow-500/10 rounded-xl">
+                <Trophy className="text-yellow-400" size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">Conquistas</h3>
+                <p className="text-xs text-gray-400">{badges.length} desbloqueadas</p>
+              </div>
+            </div>
+
+            {loadingBadges ? (
+              <div className="flex-1 flex items-center justify-center py-10">
+                <Loader2 className="animate-spin text-purple-500" size={24} />
+              </div>
+            ) : badges.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-8 opacity-60">
+                <div className="p-4 bg-white/5 rounded-full mb-3">
+                  <Star className="text-gray-400" size={24} />
+                </div>
+                <p className="text-sm text-gray-300 font-medium">Sem troféus ainda</p>
+                <p className="text-xs text-gray-500 max-w-[200px]">Use o app para desbloquear prêmios incríveis!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 content-start">
+                {badges.map((badge) => (
+                  <div key={badge.id} className="group relative bg-[#130b20] p-3 rounded-2xl border border-white/5 hover:border-yellow-500/30 transition-all duration-300 hover:shadow-[0_0_15px_rgba(234,179,8,0.1)] flex flex-col items-center text-center gap-2">
+                    <div className="text-2xl filter drop-shadow-md group-hover:scale-110 transition-transform duration-300">
+                      {badge.icon}
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-[10px] text-white uppercase tracking-wide group-hover:text-yellow-400 transition-colors">
+                        {badge.name}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Nome de Exibição</label>
-            <div className="flex gap-2 mt-1">
-              <input
-                name="name"
-                defaultValue={userName}
-                required
-                className="w-full bg-[#130b20] border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-purple-500 outline-none transition text-sm"
-              />
+        {/* --- COLUNA 2: FORMULÁRIOS DE EDIÇÃO --- */}
+        <div className="lg:col-span-2 space-y-6">
+
+          {/* Card Dados Pessoais */}
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <User size={16} /> Informações Básicas
+            </h3>
+
+            <form action={handleUpdateName} className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <input
+                  name="name"
+                  defaultValue={userName}
+                  required
+                  className="w-full bg-[#130b20] border border-white/10 rounded-xl px-4 py-3 text-white focus:border-purple-500 outline-none transition text-sm font-medium"
+                  placeholder="Seu nome"
+                />
+              </div>
               <button
                 type="submit"
                 disabled={savingName}
-                className="bg-purple-600 hover:bg-purple-500 text-white p-3 rounded-xl transition disabled:opacity-50 active:scale-95 shadow-lg shadow-purple-500/20"
+                className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold text-sm transition shadow-lg shadow-purple-900/20 active:scale-95 flex items-center justify-center gap-2 min-w-[120px]"
               >
-                {savingName ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                {savingName ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                Salvar
               </button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      {/* SEÇÃO 3: SEGURANÇA */}
-      <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
-        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-          <ShieldCheck className="text-emerald-400" size={20} /> Segurança
-        </h3>
-
-        <form action={handleUpdatePassword} className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Senha Atual</label>
-            <input
-              type="password"
-              name="currentPassword"
-              required
-              placeholder="••••••"
-              className="mt-1 w-full bg-[#130b20] border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition text-sm"
-            />
+            </form>
           </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Nova Senha</label>
-            <input
-              type="password"
-              name="newPassword"
-              required
-              placeholder="••••••"
-              className="mt-1 w-full bg-[#130b20] border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition text-sm"
-            />
+          {/* Card Segurança */}
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden">
+            {/* Decorativo de fundo */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-[60px] pointer-events-none" />
+
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <ShieldCheck size={16} /> Alterar Senha
+            </h3>
+
+            <form action={handleUpdatePassword} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="relative">
+                  <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="password"
+                    name="currentPassword"
+                    required
+                    placeholder="Senha atual"
+                    className="w-full bg-[#130b20] border border-white/10 rounded-xl pl-9 pr-4 py-3 text-white focus:border-emerald-500 outline-none transition text-sm"
+                  />
+                </div>
+                <div className="relative">
+                  <Key size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="password"
+                    name="newPassword"
+                    required
+                    placeholder="Nova senha"
+                    className="w-full bg-[#130b20] border border-white/10 rounded-xl pl-9 pr-4 py-3 text-white focus:border-emerald-500 outline-none transition text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingPass}
+                  className="bg-[#130b20] hover:bg-emerald-500/10 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 px-6 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 w-full sm:w-auto"
+                >
+                  {savingPass ? <Loader2 className="animate-spin" size={16} /> : <CheckIcon />}
+                  Atualizar Senha
+                </button>
+              </div>
+            </form>
           </div>
 
-          <button
-            type="submit"
-            disabled={savingPass}
-            className="w-full bg-white/5 hover:bg-white/10 text-white font-medium py-3 rounded-xl border border-white/5 transition flex justify-center gap-2 active:scale-[0.98]"
-          >
-            {savingPass ? <Loader2 className="animate-spin" size={18} /> : <Lock size={18} />}
-            Atualizar Senha
-          </button>
-        </form>
-      </div>
+          {/* Zona de Perigo */}
+          <div className="mt-8 pt-6 border-t border-white/5">
+            <button
+              onClick={handleDeleteAccount}
+              disabled={isDeleting}
+              className="flex items-center gap-2 text-xs font-bold text-red-400/60 hover:text-red-400 transition hover:underline"
+            >
+              {isDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              Excluir minha conta permanentemente
+            </button>
+          </div>
 
-      {/* SEÇÃO 4: AÇÕES FINAIS (Logout e Excluir) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <button
-          onClick={() => logoutUser()}
-          className="w-full bg-[#1f1630] hover:bg-white/5 text-gray-300 font-bold py-4 rounded-3xl border border-white/5 transition flex items-center justify-center gap-2 group hover:text-white"
-        >
-          <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" /> Sair da Conta
-        </button>
-
-        <button
-          onClick={handleDeleteAccount}
-          disabled={isDeleting}
-          className="w-full bg-red-500/5 hover:bg-red-500/10 text-red-400 font-bold py-4 rounded-3xl border border-red-500/20 transition flex items-center justify-center gap-2 active:scale-[0.98] hover:shadow-lg hover:shadow-red-500/10"
-        >
-          {isDeleting ? <Loader2 className="animate-spin" /> : <><Trash2 size={20} /> Excluir Conta</>}
-        </button>
+        </div>
       </div>
     </div>
   );
 }
+
+// Pequeno helper para ícone
+const CheckIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"></polyline>
+  </svg>
+);

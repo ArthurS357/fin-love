@@ -24,6 +24,7 @@ export const metadata: Metadata = {
     default: 'FinLove - Finanças para Casais',
   },
   description: "Gerencie suas finanças, defina metas e realize sonhos a dois.",
+  themeColor: '#130b20', // Cor da barra do navegador mobile
   manifest: "/manifest.json",
   icons: {
     apple: "/icon-192.png",

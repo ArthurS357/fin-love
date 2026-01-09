@@ -322,7 +322,7 @@ export default function Dashboard({
             />
           )}
           {activeTab === 'goals' && (
-            <GoalsTab income={combinedStats.income} expense={combinedStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} />
+            <GoalsTab income={combinedStats.income} expense={combinedStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} privacyMode={privacyMode} />
           )}
           {activeTab === 'history' && (
             <HistoryTab

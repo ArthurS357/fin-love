@@ -327,9 +327,12 @@ export default function Dashboard({
           {activeTab === 'history' && (
             <HistoryTab
               transactions={monthlyTransactions}
-              onEdit={handleEdit} onDelete={handleDelete}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
               partnerId={partnerId}
               partnerName={partner?.name || 'Parceiro'}
+              month={selectedDate.month}
+              year={selectedDate.year}
             />
           )}
           {activeTab === 'partner' && (

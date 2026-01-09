@@ -4,12 +4,14 @@ import { useState } from 'react';
 import {
   ArrowUpCircle, ArrowDownCircle, Search, Filter,
   Trash2, Edit2, Calendar, CreditCard, Wallet,
-  PiggyBank, User, Heart
+  PiggyBank, User, Heart, Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { exportTransactionsCsvAction } from '@/app/actions';
+import { toast } from 'sonner';
 
-// Reutilizando a tipagem ou definindo compatível
+// Reutilizando a tipagem
 interface Transaction {
   id: string;
   description: string;
@@ -30,13 +32,52 @@ interface HistoryTabProps {
   onDelete: (id: string) => void;
   partnerId?: string;
   partnerName?: string;
+  month: number; // Necessário para a exportação CSV
+  year: number;  // Necessário para a exportação CSV
 }
 
-export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, partnerName }: HistoryTabProps) {
+export default function HistoryTab({ 
+  transactions, 
+  onEdit, 
+  onDelete, 
+  partnerId, 
+  partnerName, 
+  month, 
+  year 
+}: HistoryTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'INVESTMENT'>('ALL');
+  const [exporting, setExporting] = useState(false);
 
-  // Filtragem
+  // --- Lógica de Exportação CSV ---
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await exportTransactionsCsvAction(month, year);
+      
+      if (res.success && res.csv) {
+        // Cria um Blob e dispara o download via navegador
+        const blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `extrato_finlove_${month + 1}_${year}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success("Download iniciado com sucesso!");
+      } else {
+        toast.error("Erro ao gerar o arquivo CSV.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro de conexão ao exportar.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // --- Lógica de Filtros ---
   const filteredTransactions = transactions.filter(t => {
     const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       t.category.toLowerCase().includes(searchTerm.toLowerCase());
@@ -49,6 +90,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
+  // --- Helpers de Ícones ---
   const getIcon = (type: string) => {
     switch (type) {
       case 'INCOME': return <ArrowUpCircle className="text-green-400" size={24} />;
@@ -65,8 +107,10 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
 
   return (
     <div className="space-y-6">
-      {/* BARRA DE FILTROS */}
+      {/* BARRA DE FILTROS E AÇÕES */}
       <div className="flex flex-col md:flex-row gap-4 justify-between bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg">
+        
+        {/* Campo de Busca */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input
@@ -78,8 +122,26 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
           />
         </div>
 
+        {/* Botões de Filtro e Exportar */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
-          <Filter size={18} className="text-gray-400 mr-2" />
+          
+          {/* Botão Exportar CSV (Novo) */}
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className={`
+              flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/5 transition-all text-xs font-bold whitespace-nowrap
+              ${exporting ? 'bg-white/5 text-gray-500 cursor-not-allowed' : 'bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white'}
+            `}
+            title="Baixar extrato em CSV"
+          >
+            <Download size={16} className={exporting ? 'animate-bounce' : ''} />
+            {exporting ? 'Gerando...' : 'Exportar CSV'}
+          </button>
+
+          <div className="w-px h-6 bg-white/10 mx-1 hidden md:block" />
+
+          {/* Filtros de Tipo */}
           {['ALL', 'INCOME', 'EXPENSE', 'INVESTMENT'].map((type) => (
             <button
               key={type}
@@ -99,11 +161,11 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
       <div className="space-y-3">
         {sortedTransactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            <p>Nenhuma transação encontrada.</p>
+            <p>Nenhuma transação encontrada para este filtro.</p>
           </div>
         ) : (
           sortedTransactions.map((t) => {
-            // Lógica para identificar dono da transação
+            // Identifica quem fez a transação
             const isPartner = partnerId && t.userId === partnerId;
             const ownerName = isPartner ? (partnerName?.split(' ')[0] || 'Parceiro') : 'Você';
             const OwnerIcon = isPartner ? Heart : User;
@@ -139,7 +201,6 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
                         {getPaymentIcon(t.paymentMethod)}
                         {t.category}
                       </span>
-                      {/* IDENTIFICADOR DE QUEM FEZ A TRANSAÇÃO */}
                       {partnerId && (
                         <span className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${isPartner
                             ? 'bg-pink-500/10 border-pink-500/20 text-pink-300'
@@ -165,8 +226,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
                     </p>
                   </div>
 
-                  {/* Ações só aparecem se for SUA transação ou se a lógica de negócio permitir editar parceiro */}
-                  {/* Assumindo que só pode editar o seu por segurança, ou ambos se preferir */}
+                  {/* Ações (Editar/Excluir) - Apenas se não for do parceiro (regra de negócio comum) */}
                   {!isPartner ? (
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
@@ -185,7 +245,7 @@ export default function HistoryTab({ transactions, onEdit, onDelete, partnerId, 
                       </button>
                     </div>
                   ) : (
-                    <div className="w-[72px]"></div> // Espaçador para alinhar
+                    <div className="w-[72px]"></div> // Espaçador para manter alinhamento
                   )}
                 </div>
               </div>

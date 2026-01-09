@@ -9,7 +9,8 @@ import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { addMonths, isBefore, setDate } from 'date-fns'
+import { addMonths, isBefore, setDate, subMonths, startOfMonth, endOfMonth, format } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 import { randomBytes, randomUUID } from 'crypto'
 import { sendPasswordResetEmail } from '@/lib/mail'
 
@@ -24,7 +25,7 @@ import {
   budgetDataSchema
 } from '@/lib/schemas'
 
-// --- CORREÇÃO DE TIPOS (BUILD) ---
+// --- TIPOS ---
 import type { BudgetData, BudgetItem } from '@/lib/schemas';
 export type { BudgetData, BudgetItem };
 
@@ -35,6 +36,7 @@ type ActionState = {
   error: string
   message?: string
   details?: string
+  data?: any
 }
 
 // ==========================================
@@ -307,7 +309,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 }
 
 // ==========================================
-// 3. RESUMO FINANCEIRO
+// 3. RESUMO E ANÁLISE FINANCEIRA
 // ==========================================
 
 export async function getFinancialSummaryAction() {
@@ -329,6 +331,98 @@ export async function getFinancialSummaryAction() {
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
   return { accumulatedBalance };
+}
+
+// --- NOVO: COMPARATIVO MENSAL (MELHORIA 2) ---
+export async function getMonthlyComparisonAction(month: number, year: number) {
+  const userId = await getUserId();
+  if (!userId) return { success: false, data: null };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+  const userIds = [userId, user?.partnerId].filter(Boolean) as string[];
+
+  // Datas
+  const currentDate = new Date(year, month, 1);
+  const prevDate = subMonths(currentDate, 1);
+
+  // Helper de cálculo
+  const getMonthTotal = async (date: Date) => {
+    const start = startOfMonth(date);
+    const end = endOfMonth(date);
+
+    const result = await prisma.transaction.aggregate({
+      where: {
+        userId: { in: userIds },
+        date: { gte: start, lte: end },
+        type: 'EXPENSE'
+      },
+      _sum: { amount: true }
+    });
+    return Number(result._sum.amount || 0);
+  };
+
+  try {
+    const currentTotal = await getMonthTotal(currentDate);
+    const prevTotal = await getMonthTotal(prevDate);
+
+    // Cálculo da Variação
+    let diffPercent = 0;
+    if (prevTotal > 0) {
+      diffPercent = ((currentTotal - prevTotal) / prevTotal) * 100;
+    } else if (currentTotal > 0) {
+      diffPercent = 100; // Se antes era 0 e agora gastou, aumentou 100% (simbólico)
+    }
+
+    return {
+      success: true,
+      data: {
+        currentTotal,
+        prevTotal,
+        diffPercent: Number(diffPercent.toFixed(1)),
+        increased: currentTotal > prevTotal
+      }
+    };
+  } catch (e) {
+    return { success: false, data: null };
+  }
+}
+
+// --- NOVO: EXPORTAR CSV (MELHORIA 3) ---
+export async function exportTransactionsCsvAction(month: number, year: number) {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Auth error' };
+
+  const start = startOfMonth(new Date(year, month, 1));
+  const end = endOfMonth(new Date(year, month, 1));
+
+  try {
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: { gte: start, lte: end }
+      },
+      orderBy: { date: 'desc' }
+    });
+
+    // Cabeçalho CSV
+    const header = "Data,Descrição,Categoria,Tipo,Valor,Status\n";
+
+    // Linhas
+    const rows = transactions.map(t => {
+      const dateStr = format(t.date, 'dd/MM/yyyy');
+      const amountStr = t.amount.toFixed(2).replace('.', ',');
+      const status = t.isPaid ? 'Pago' : 'Pendente';
+      // Sanitiza descrição para evitar quebra de CSV
+      const desc = t.description.replace(/,/g, ' ');
+
+      return `${dateStr},${desc},${t.category},${t.type},${amountStr},${status}`;
+    }).join('\n');
+
+    return { success: true, csv: header + rows };
+  } catch (error) {
+    console.error("Erro export CSV:", error);
+    return { success: false, error: 'Erro ao gerar arquivo.' };
+  }
 }
 
 // ==========================================
@@ -428,10 +522,10 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
 }
 
 // ==========================================
-// 5. INTELIGÊNCIA ARTIFICIAL (GERAL & HISTÓRICO)
+// 5. INTELIGÊNCIA ARTIFICIAL (GERAL, HISTÓRICO & TONE)
 // ==========================================
 
-// --- NOVO: BUSCAR HISTÓRICO ---
+// --- BUSCAR HISTÓRICO ---
 export async function getAiHistoryAction(context: string = 'GENERAL') {
   const userId = await getUserId();
   if (!userId) return [];
@@ -449,8 +543,21 @@ export async function getAiHistoryAction(context: string = 'GENERAL') {
   }
 }
 
-// --- ATUALIZADO: GERAR CONSELHO COM HISTÓRICO ---
-export async function generateFinancialAdviceAction() {
+// --- LIMPAR HISTÓRICO (DO PASSO ANTERIOR) ---
+export async function clearAiHistoryAction(context: string = 'GENERAL') {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Auth error' };
+  try {
+    await prisma.aiChat.deleteMany({ where: { userId, context } });
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: 'Erro ao limpar histórico.' };
+  }
+}
+
+// --- ATUALIZADO: GERAR CONSELHO COM TONE (MELHORIA 1) ---
+export async function generateFinancialAdviceAction(tone: string = 'FRIENDLY') {
   const userId = await getUserId()
   if (!userId) return { success: false, error: 'Auth error' }
 
@@ -479,11 +586,35 @@ export async function generateFinancialAdviceAction() {
     if (transactions.length === 0) return { success: false, error: 'Sem dados suficientes.' }
 
     const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${Number(t.amount)} [${t.type}]`).join('\n')
-    const prompt = `Analise estas transações de um casal/pessoa:\n${txSummary}\nMeta: R$ ${Number(user.spendingLimit)}. Responda em Markdown curto com: Onde foi o dinheiro, Pontos de Atenção e Dica de Ouro. Tom amigável e direto.`;
+
+    // Lógica de Personalidade
+    let personalityInstruction = "";
+    switch (tone) {
+      case 'STRICT': // Auditor
+        personalityInstruction = "Aja como um auditor financeiro rigoroso e sério. Seja direto, aponte erros sem rodeios e foque em corte de gastos, eficiência e compliance.";
+        break;
+      case 'COACH': // Motivacional
+        personalityInstruction = "Aja como um coach financeiro motivacional e energético. Use emojis, celebre pequenas vitórias e inspire o usuário a guardar dinheiro para o futuro com entusiasmo.";
+        break;
+      case 'POETIC': // Filósofo
+        personalityInstruction = "Responda de forma poética e filosófica, usando metáforas sobre o dinheiro, o tempo e a vida.";
+        break;
+      case 'FRIENDLY': // Padrão
+      default:
+        personalityInstruction = "Aja como um amigo conselheiro, tom leve, empático e prestativo.";
+        break;
+    }
+
+    const prompt = `
+      ${personalityInstruction}
+      Analise estas transações de um casal/pessoa:
+      ${txSummary}
+      Meta de Gastos (Limite): R$ ${Number(user.spendingLimit)}.
+      Responda em Markdown curto. Estrutura obrigatória: "Onde foi o dinheiro", "Pontos de Atenção" e "Dica de Ouro".
+    `;
 
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
-    // Salva histórico
     await prisma.aiChat.create({
       data: {
         userId,
@@ -493,7 +624,7 @@ export async function generateFinancialAdviceAction() {
       }
     });
 
-    // Mantém compatibilidade legado (opcional)
+    // Legado
     await prisma.user.update({
       where: { id: userId },
       data: { lastAdvice: adviceText, lastAdviceDate: new Date() }
@@ -504,25 +635,6 @@ export async function generateFinancialAdviceAction() {
   } catch (error: any) {
     console.error("Erro na IA Geral:", error);
     return { success: false, error: 'IA indisponível no momento.' }
-  }
-}
-
-// --- NOVO: LIMPAR HISTÓRICO ---
-export async function clearAiHistoryAction(context: string = 'GENERAL') {
-  const userId = await getUserId();
-  if (!userId) return { success: false, error: 'Auth error' };
-
-  try {
-    await prisma.aiChat.deleteMany({
-      where: { userId, context }
-    });
-    
-    // Revalida para garantir que caches sejam limpos se necessário
-    revalidatePath('/dashboard'); 
-    return { success: true };
-  } catch (error) {
-    console.error("Erro ao limpar histórico:", error);
-    return { success: false, error: 'Erro ao limpar histórico.' };
   }
 }
 
@@ -685,7 +797,7 @@ export async function getBadgesAction() {
 }
 
 // ==========================================
-// 9. PLANEJAMENTO MENSAL (ATUALIZADO)
+// 9. PLANEJAMENTO MENSAL
 // ==========================================
 
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
@@ -795,7 +907,6 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
-    // Salva histórico
     await prisma.aiChat.create({
       data: {
         userId,

@@ -42,6 +42,7 @@ model User {
   recurring        RecurringTransaction[]
   monthlyBudgets   MonthlyBudget[]
   aiChats          AiChat[]  // Relação com o novo histórico
+  investments      Investment[]
 
   @@index([email]) // Login rápido
 }
@@ -154,4 +155,24 @@ model AiChat {
   // Índices para busca rápida do histórico
   @@index([userId, context])
   @@index([createdAt])
+}
+
+model Investment {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name          String   // Ex: "Bitcoin", "CDB Nubank"
+  category      String   // Ex: "CRIPTO", "RENDA_FIXA", "ACOES", "FII"
+  
+  investedAmount Float   // Quanto você tirou do bolso (Preço Médio)
+  currentAmount  Float   // Quanto vale hoje (atualizável)
+  
+  // Opcional: Linkar com a transação original do extrato
+  originTransactionId String? 
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
 }

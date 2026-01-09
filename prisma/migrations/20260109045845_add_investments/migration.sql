@@ -91,6 +91,33 @@ CREATE TABLE "MonthlyBudget" (
     CONSTRAINT "MonthlyBudget_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "AiChat" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "context" TEXT NOT NULL DEFAULT 'GENERAL',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AiChat_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Investment" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "investedAmount" DOUBLE PRECISION NOT NULL,
+    "currentAmount" DOUBLE PRECISION NOT NULL,
+    "originTransactionId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Investment_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -127,6 +154,15 @@ CREATE INDEX "MonthlyBudget_userId_month_year_idx" ON "MonthlyBudget"("userId", 
 -- CreateIndex
 CREATE UNIQUE INDEX "MonthlyBudget_userId_month_year_key" ON "MonthlyBudget"("userId", "month", "year");
 
+-- CreateIndex
+CREATE INDEX "AiChat_userId_context_idx" ON "AiChat"("userId", "context");
+
+-- CreateIndex
+CREATE INDEX "AiChat_createdAt_idx" ON "AiChat"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "Investment_userId_idx" ON "Investment"("userId");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -144,3 +180,9 @@ ALTER TABLE "Badge" ADD CONSTRAINT "Badge_userId_fkey" FOREIGN KEY ("userId") RE
 
 -- AddForeignKey
 ALTER TABLE "MonthlyBudget" ADD CONSTRAINT "MonthlyBudget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AiChat" ADD CONSTRAINT "AiChat_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Investment" ADD CONSTRAINT "Investment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -13,6 +13,7 @@ import { addMonths, isBefore, setDate, subMonths, startOfMonth, endOfMonth, form
 import { ptBR } from 'date-fns/locale'
 import { randomBytes, randomUUID } from 'crypto'
 import { sendPasswordResetEmail } from '@/lib/mail'
+import { investmentSchema } from '@/lib/schemas';
 
 import {
   registerSchema,
@@ -387,10 +388,19 @@ export async function getMonthlyComparisonAction(month: number, year: number) {
   }
 }
 
-// --- NOVO: EXPORTAR CSV (MELHORIA 3) ---
+// --- CORREÇÃO: EXPORTAR CSV (COM DADOS DO CASAL + SEGURANÇA) ---
 export async function exportTransactionsCsvAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { success: false, error: 'Auth error' };
+
+  // 1. Busca o parceiro para incluir no relatório (Consistência)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { partnerId: true, name: true, partner: { select: { name: true } } }
+  });
+
+  const userIds = [userId];
+  if (user?.partnerId) userIds.push(user.partnerId);
 
   const start = startOfMonth(new Date(year, month, 1));
   const end = endOfMonth(new Date(year, month, 1));
@@ -398,24 +408,41 @@ export async function exportTransactionsCsvAction(month: number, year: number) {
   try {
     const transactions = await prisma.transaction.findMany({
       where: {
-        userId,
+        userId: { in: userIds }, // Agora busca de ambos!
         date: { gte: start, lte: end }
       },
-      orderBy: { date: 'desc' }
+      orderBy: { date: 'desc' },
+      include: { user: { select: { name: true } } } // Inclui nome para identificar de quem é
     });
 
+    // 2. Função de Sanitização (Segurança contra CSV Injection)
+    const safeString = (str: string) => {
+      if (!str) return '';
+      let clean = str.replace(/,/g, ' ').replace(/\n/g, ' '); // Remove vírgulas e quebras
+      // Se começar com caracteres de fórmula, adiciona aspas simples para forçar texto
+      if (/^[=+\-@]/.test(clean)) {
+        return `'${clean}`;
+      }
+      return clean;
+    };
+
     // Cabeçalho CSV
-    const header = "Data,Descrição,Categoria,Tipo,Valor,Status\n";
+    const header = "Data,Quem,Descrição,Categoria,Tipo,Valor,Status\n";
 
     // Linhas
     const rows = transactions.map(t => {
       const dateStr = format(t.date, 'dd/MM/yyyy');
+      // Identifica se é do usuário ou do parceiro
+      const ownerName = t.userId === userId ? 'Você' : (t.user?.name?.split(' ')[0] || 'Parceiro');
+
       const amountStr = t.amount.toFixed(2).replace('.', ',');
       const status = t.isPaid ? 'Pago' : 'Pendente';
-      // Sanitiza descrição para evitar quebra de CSV
-      const desc = t.description.replace(/,/g, ' ');
 
-      return `${dateStr},${desc},${t.category},${t.type},${amountStr},${status}`;
+      // Aplica sanitização
+      const desc = safeString(t.description);
+      const cat = safeString(t.category);
+
+      return `${dateStr},${ownerName},${desc},${cat},${t.type},${amountStr},${status}`;
     }).join('\n');
 
     return { success: true, csv: header + rows };
@@ -984,4 +1011,125 @@ export async function resetPasswordAction(token: string, formData: FormData) {
     data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
   });
   return { success: true };
+}
+
+// ==========================================
+// 11. GESTÃO DE INVESTIMENTOS (CORRIGIDO)
+// ==========================================
+
+export async function addInvestmentAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const rawData = Object.fromEntries(formData);
+  const validation = investmentSchema.safeParse(rawData);
+
+  if (!validation.success) {
+    return { error: validation.error.issues[0].message };
+  }
+
+  const { name, category, investedAmount, createTransaction, date } = validation.data;
+  const currentAmount = validation.data.currentAmount || investedAmount;
+  const txDate = date ? new Date(date) : new Date();
+
+  try {
+    const newInvestment = await prisma.investment.create({
+      data: {
+        userId,
+        name,
+        category,
+        investedAmount,
+        currentAmount
+      }
+    });
+
+    if (createTransaction === 'on' || createTransaction === 'true') {
+      await prisma.transaction.create({
+        data: {
+          userId,
+          description: `Investimento: ${name}`,
+          amount: investedAmount,
+          type: 'INVESTMENT',
+          category: 'Investimentos',
+          date: txDate,
+          isPaid: true,
+        }
+      });
+    }
+
+    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Investimento criado!' };
+
+  } catch (error) {
+    console.error("Erro ao criar investimento:", error);
+    return { error: 'Erro ao salvar.' };
+  }
+}
+
+export async function getInvestmentsAction() {
+  const userId = await getUserId();
+  if (!userId) return { myInvestments: [], partnerInvestments: [] };
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { partnerId: true }
+  });
+
+  const myInvestments = await prisma.investment.findMany({
+    where: { userId },
+    orderBy: { currentAmount: 'desc' }
+  });
+
+  let partnerInvestments: any[] = [];
+  if (user?.partnerId) {
+    partnerInvestments = await prisma.investment.findMany({
+      where: { userId: user.partnerId },
+      orderBy: { currentAmount: 'desc' }
+    });
+  }
+
+  return { myInvestments, partnerInvestments };
+}
+
+export async function updateInvestmentBalanceAction(id: string, newCurrentAmount: number) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  try {
+    const investment = await prisma.investment.findUnique({ where: { id } });
+    if (!investment || investment.userId !== userId) return { error: 'Não autorizado.' };
+
+    await prisma.investment.update({
+      where: { id },
+      data: { currentAmount: newCurrentAmount }
+    });
+
+    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Saldo atualizado!' };
+  } catch (error) {
+    return { error: 'Erro ao atualizar.' };
+  }
+}
+
+export async function deleteInvestmentAction(id: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  try {
+    const investment = await prisma.investment.findMany({ where: { id, userId } });
+    if (!investment.length) return { error: 'Não autorizado.' };
+
+    await prisma.investment.delete({ where: { id } });
+
+    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Investimento removido.' };
+  } catch (error) {
+    return { error: 'Erro ao excluir.' };
+  }
 }

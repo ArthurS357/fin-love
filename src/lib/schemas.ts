@@ -82,3 +82,14 @@ export const budgetDataSchema = z.object({
 // --- TIPOS EXPORTADOS (Correção aqui) ---
 export type BudgetItem = z.infer<typeof budgetItemSchema>; // Adicionado
 export type BudgetData = z.infer<typeof budgetDataSchema>;
+
+export const investmentSchema = z.object({
+  name: z.string().min(2, 'Nome muito curto'),
+  category: z.enum(['RENDA_FIXA', 'ACOES', 'FII', 'CRIPTO', 'OUTROS']),
+  investedAmount: z.coerce.number().min(0.01, 'Valor inválido'),
+  currentAmount: z.coerce.number().min(0, 'Valor inválido').optional(), // Se não preencher, assume igual ao investido
+  date: z.string().optional(), // Para registro
+  createTransaction: z.string().optional() // Checkbox "Debitar do saldo?" (vem como string do form)
+});
+
+export type InvestmentData = z.infer<typeof investmentSchema>;

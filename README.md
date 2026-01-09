@@ -1,4 +1,4 @@
-```markdown
+
 # 💜 Fin Love - Finanças a Dois
 
 > Gerencie suas finanças, conquiste sonhos e conecte-se com quem você ama.

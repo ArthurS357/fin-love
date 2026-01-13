@@ -934,15 +934,32 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 
     const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
-    const hasIncome = data.incomes.length > 0;
-    if (itemCount < 1 && !hasIncome) return { error: 'Poucos dados', details: 'Adicione mais dados.', success: false };
+    
+    // Formatação auxiliar para incluir o DIA
+    const fmt = (item: any) => {
+        const dayStr = item.day ? `[Dia ${item.day}] ` : '';
+        return `${dayStr}${item.name}: R$ ${Number(item.amount).toFixed(2)}`;
+    };
 
-    const fmt = (val: number) => `R$ ${Number(val).toFixed(2)}`;
-    const incomeStr = data.incomes.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
-    const fixedStr = data.fixedExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
-    const varStr = data.variableExpenses.map(i => `${i.name}: ${fmt(i.amount)}`).join(', ');
+    const incomeStr = data.incomes.map(fmt).join('; ');
+    const fixedStr = data.fixedExpenses.map(fmt).join('; ');
+    const varStr = data.variableExpenses.map(fmt).join('; ');
 
-    const prompt = `(Contexto: Planejamento ${month + 1}/${year}) Analise: Entradas [${incomeStr}], Fixos [${fixedStr}], Variáveis [${varStr}]. Diagnóstico curto e ação recomendada.`;
+    const prompt = `
+      CONTEXTO: Planejamento Financeiro para ${month + 1}/${year}.
+      
+      DADOS:
+      - Entradas: ${incomeStr || 'Nenhuma'}
+      - Despesas Fixas: ${fixedStr || 'Nenhuma'}
+      - Despesas Variáveis: ${varStr || 'Nenhuma'}
+      
+      TAREFA: Analise o fluxo de caixa considerando os dias de vencimento (se fornecidos).
+      1. Verifique se o dinheiro entra antes de sair.
+      2. Aponte gargalos ou riscos de ficar no vermelho em dias específicos.
+      3. Dê uma sugestão prática.
+      
+      Responda em Markdown claro, usando tópicos e negrito para destacar valores e datas críticas. Seja direto.
+    `;
 
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 

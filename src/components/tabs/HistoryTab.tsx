@@ -3,8 +3,8 @@
 import { useState, useMemo } from 'react';
 import {
   ArrowUpCircle, ArrowDownCircle, Search,
-  Trash2, Edit2, Calendar, CreditCard, Wallet,
-  PiggyBank, User, Heart, Download, Filter
+  Trash2, Edit2, Download, Filter,
+  CreditCard, Wallet, PiggyBank, Heart, User, Users
 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -46,6 +46,10 @@ export default function HistoryTab({
 }: HistoryTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'INVESTMENT'>('ALL');
+  
+  // NOVO: Filtro de visualização (Eu, Parceiro, Todos)
+  const [viewMode, setViewMode] = useState<'ME' | 'PARTNER' | 'BOTH'>('BOTH');
+  
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async () => {
@@ -72,28 +76,40 @@ export default function HistoryTab({
     }
   };
 
-  // 1. Filtragem
+  // Lógica de Filtragem Unificada
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
+      // 1. Filtro de Texto
       const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.category.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // 2. Filtro de Tipo (Entrada/Saída)
       const matchesType = filterType === 'ALL' || t.type === filterType;
-      return matchesSearch && matchesType;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [transactions, searchTerm, filterType]);
 
-  // 2. Agrupamento por Data (NOVO)
+      // 3. NOVO: Filtro de Dono (Eu vs Parceiro)
+      let matchesOwner = true;
+      const isPartnerTx = partnerId && t.userId === partnerId;
+
+      if (viewMode === 'ME') {
+        matchesOwner = !isPartnerTx; // Mostra se NÃO for do parceiro
+      } else if (viewMode === 'PARTNER') {
+        matchesOwner = !!isPartnerTx; // Mostra SÓ se for do parceiro
+      }
+      // Se for 'BOTH', matchesOwner continua true
+
+      return matchesSearch && matchesType && matchesOwner;
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, searchTerm, filterType, viewMode, partnerId]);
+
+  // Agrupamento por Data
   const groupedTransactions = useMemo(() => {
     const groups: Record<string, Transaction[]> = {};
-
     filteredTransactions.forEach(t => {
       const date = new Date(t.date);
-      // Chave para ordenação correta: YYYY-MM-DD
       const dateKey = format(date, 'yyyy-MM-dd');
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(t);
     });
-
     return groups;
   }, [filteredTransactions]);
 
@@ -111,14 +127,9 @@ export default function HistoryTab({
     return <Wallet size={12} className="text-gray-400" />;
   };
 
-  // Helper para formatar o cabeçalho da data
   const formatDateHeader = (dateStr: string) => {
-    const date = new Date(dateStr); // dateStr está em yyyy-MM-dd, seguro para criar Date
-    // Ajuste de fuso horário simples (considerando que a string já representa o dia local desejado)
-    // Para garantir a exibição correta independente do timezone do browser, usamos split
     const [y, m, d] = dateStr.split('-').map(Number);
     const localDate = new Date(y, m - 1, d);
-
     if (isToday(localDate)) return "Hoje";
     if (isYesterday(localDate)) return "Ontem";
     return format(localDate, "d 'de' MMMM, EEEE", { locale: ptBR });
@@ -126,7 +137,40 @@ export default function HistoryTab({
 
   return (
     <div className="space-y-6 pb-20">
-      {/* BARRA DE FILTROS */}
+      
+      {/* --- NOVO: SELETOR DE VISUALIZAÇÃO (SÓ APARECE SE TIVER PARCEIRO) --- */}
+      {partnerId && (
+        <div className="flex justify-center">
+          <div className="bg-[#1f1630] p-1 rounded-xl border border-white/5 inline-flex shadow-lg">
+            <button
+              onClick={() => setViewMode('ME')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'ME' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <User size={14} /> Eu
+            </button>
+            <button
+              onClick={() => setViewMode('PARTNER')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'PARTNER' ? 'bg-pink-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Heart size={14} /> {partnerName?.split(' ')[0] || 'Parceiro'}
+            </button>
+            <button
+              onClick={() => setViewMode('BOTH')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'BOTH' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Users size={14} /> Juntos
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BARRA DE FILTROS & PESQUISA */}
       <div className="flex flex-col md:flex-row gap-4 justify-between bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg sticky top-24 z-20 backdrop-blur-md bg-opacity-90">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -146,7 +190,7 @@ export default function HistoryTab({
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-all text-xs font-bold whitespace-nowrap"
           >
             <Download size={16} className={exporting ? 'animate-bounce' : ''} />
-            {exporting ? '...' : 'CSV'}
+            CSV
           </button>
 
           <div className="w-px h-6 bg-white/10 mx-1 hidden md:block" />
@@ -166,7 +210,7 @@ export default function HistoryTab({
         </div>
       </div>
 
-      {/* LISTA AGRUPADA */}
+      {/* LISTA DE TRANSAÇÕES */}
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
         {Object.keys(groupedTransactions).length === 0 ? (
           <div className="text-center py-12">
@@ -174,18 +218,18 @@ export default function HistoryTab({
               <Filter className="text-gray-500" size={32} />
             </div>
             <p className="text-gray-400 font-medium">Nenhuma transação encontrada.</p>
-            <p className="text-gray-600 text-sm mt-1">Tente mudar os filtros ou adicione uma nova.</p>
+            <p className="text-gray-600 text-sm mt-1">
+              {viewMode === 'PARTNER' ? 'Seu parceiro ainda não lançou nada.' : 'Mude os filtros ou adicione um novo registro.'}
+            </p>
           </div>
         ) : (
           Object.entries(groupedTransactions).map(([dateKey, txs]) => (
             <div key={dateKey} className="space-y-3">
-              {/* CABEÇALHO DA DATA */}
               <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider px-2 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-purple-500/50"></span>
                 {formatDateHeader(dateKey)}
               </h3>
 
-              {/* TRANSAÇÕES DO DIA */}
               <div className="space-y-2">
                 {txs.map((t) => {
                   const isPartner = partnerId && t.userId === partnerId;
@@ -197,7 +241,6 @@ export default function HistoryTab({
                       key={t.id}
                       className="group bg-[#1f1630] hover:bg-[#251a3a] border border-white/5 p-4 rounded-2xl flex items-center justify-between transition-all hover:shadow-lg hover:border-purple-500/20 relative overflow-hidden"
                     >
-                      {/* Borda lateral colorida */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
 
                       <div className="flex items-center gap-4 pl-2">
@@ -219,7 +262,8 @@ export default function HistoryTab({
                               {getPaymentIcon(t.paymentMethod)}
                               {t.category}
                             </span>
-                            {partnerId && (
+                            {/* Chip indicando quem pagou (Útil no modo 'BOTH') */}
+                            {partnerId && viewMode === 'BOTH' && (
                               <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${isPartner
                                 ? 'bg-pink-500/10 border-pink-500/20 text-pink-300'
                                 : 'bg-purple-500/10 border-purple-500/20 text-purple-300'
@@ -244,6 +288,7 @@ export default function HistoryTab({
                           </p>
                         </div>
 
+                        {/* Botões de Ação (Só aparecem se for EU) */}
                         {!isPartner ? (
                           <div className="flex gap-1 md:gap-2 opacity-0 group-hover:opacity-100 transition-opacity absolute md:static right-4 bg-[#1f1630] md:bg-transparent p-1 md:p-0 rounded-lg shadow-xl md:shadow-none border border-white/10 md:border-none translate-x-2 group-hover:translate-x-0">
                             <button

@@ -71,6 +71,7 @@ export const budgetItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   amount: z.coerce.number(),
+  day: z.string().optional(),
 });
 
 export const budgetDataSchema = z.object({

@@ -934,11 +934,11 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
 
     const data = validation.data;
     const itemCount = data.fixedExpenses.length + data.variableExpenses.length;
-    
+
     // Formatação auxiliar para incluir o DIA
     const fmt = (item: any) => {
-        const dayStr = item.day ? `[Dia ${item.day}] ` : '';
-        return `${dayStr}${item.name}: R$ ${Number(item.amount).toFixed(2)}`;
+      const dayStr = item.day ? `[Dia ${item.day}] ` : '';
+      return `${dayStr}${item.name}: R$ ${Number(item.amount).toFixed(2)}`;
     };
 
     const incomeStr = data.incomes.map(fmt).join('; ');
@@ -1246,7 +1246,7 @@ export async function importLastMonthBudgetAction(targetMonth: number, targetYea
     // 3. Parse e Limpeza (Gerar novos IDs para os itens copiados)
     let sourceData = prevBudget.data;
     if (typeof sourceData === 'string') sourceData = JSON.parse(sourceData);
-    
+
     // Função para renovar IDs e limpar status de "pago"
     const renewItems = (items: any[]) => items.map(item => ({
       ...item,

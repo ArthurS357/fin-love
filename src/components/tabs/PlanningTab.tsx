@@ -60,8 +60,8 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
                     return <div key={index} className="flex gap-3 text-sm text-gray-300 ml-1"><span className="text-purple-500 mt-1.5 text-[8px]">●</span><p className="flex-1 leading-relaxed">{hasBold ? text.split('**').map((part, i) => i % 2 === 1 ? <strong key={i} className="text-white font-semibold">{part}</strong> : part) : text}</p></div>;
                 }
                 if (cleanLine.length > 0) {
-                     const parts = cleanLine.split('**');
-                     return <p key={index} className="text-sm text-gray-300 leading-relaxed">{parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-white font-semibold bg-white/5 px-1 rounded">{part}</strong> : part)}</p>;
+                    const parts = cleanLine.split('**');
+                    return <p key={index} className="text-sm text-gray-300 leading-relaxed">{parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-white font-semibold bg-white/5 px-1 rounded">{part}</strong> : part)}</p>;
                 }
                 return <div key={index} className="h-2"></div>;
             })}
@@ -98,7 +98,7 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
                     fixedExpenses: fetchedData.fixedExpenses.sort(sortFn),
                     variableExpenses: fetchedData.variableExpenses.sort(sortFn),
                 } : emptyBudget;
-                
+
                 setData(sortedData as ExtendedBudgetData);
                 setLoading(false);
             }
@@ -112,10 +112,10 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
         const totalIncome = sum(data.incomes);
         const totalExpenses = sum(data.fixedExpenses) + sum(data.variableExpenses);
         const finalBalance = totalIncome - totalExpenses;
-        
+
         // Percentual Comprometido
         const percentCommitted = totalIncome > 0 ? (totalExpenses / totalIncome) * 100 : 0;
-        
+
         return { totalIncome, totalExpenses, finalBalance, percentCommitted };
     }, [data]);
 
@@ -130,7 +130,7 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
             fixedExpenses: [...data.fixedExpenses].sort(sortFn),
             variableExpenses: [...data.variableExpenses].sort(sortFn),
         };
-        
+
         const res = await saveMonthlyBudgetAction(month, year, dataToSave);
         setSaving(false);
         if (res?.success) toast.success(res.message);
@@ -202,7 +202,7 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
                             <button onClick={() => setMode('list')} className={`p-2 rounded-md transition ${mode === 'list' ? 'bg-white/10 text-white' : 'text-gray-400'}`}><List size={18} /></button>
                             <button onClick={() => setMode('excel')} className={`p-2 rounded-md transition ${mode === 'excel' ? 'bg-white/10 text-white' : 'text-gray-400'}`}><LayoutGrid size={18} /></button>
                         </div>
-                        
+
                         {/* Seletor Parceiro */}
                         {partnerId && (
                             <div className="flex items-center bg-[#130b20] p-1 rounded-lg border border-white/10">
@@ -247,20 +247,19 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
                         {/* Marcadores de 50%, 75% e 100% */}
                         <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10 z-10" title="50%"></div>
                         <div className="absolute left-[75%] top-0 bottom-0 w-px bg-white/10 z-10" title="75%"></div>
-                        
-                        <div 
-                            className={`h-full transition-all duration-700 ease-out ${
-                                stats.percentCommitted > 100 ? 'bg-red-500 animate-pulse' : 
-                                stats.percentCommitted > 85 ? 'bg-gradient-to-r from-orange-500 to-red-500' : 
-                                'bg-gradient-to-r from-blue-500 to-purple-500'
-                            }`}
+
+                        <div
+                            className={`h-full transition-all duration-700 ease-out ${stats.percentCommitted > 100 ? 'bg-red-500 animate-pulse' :
+                                    stats.percentCommitted > 85 ? 'bg-gradient-to-r from-orange-500 to-red-500' :
+                                        'bg-gradient-to-r from-blue-500 to-purple-500'
+                                }`}
                             style={{ width: `${Math.min(stats.percentCommitted, 100)}%` }}
                         />
                     </div>
                     <div className="flex justify-between mt-2 text-xs">
-                         <div className="text-gray-400">Entradas: <span className="text-green-400 font-bold">R$ {stats.totalIncome.toLocaleString('pt-BR')}</span></div>
-                         <div className="text-gray-400">Saídas: <span className="text-red-400 font-bold">R$ {stats.totalExpenses.toLocaleString('pt-BR')}</span></div>
-                         <div className="text-gray-400">Saldo: <span className={`font-bold ${stats.finalBalance >= 0 ? 'text-blue-400' : 'text-red-400'}`}>R$ {stats.finalBalance.toLocaleString('pt-BR')}</span></div>
+                        <div className="text-gray-400">Entradas: <span className="text-green-400 font-bold">R$ {stats.totalIncome.toLocaleString('pt-BR')}</span></div>
+                        <div className="text-gray-400">Saídas: <span className="text-red-400 font-bold">R$ {stats.totalExpenses.toLocaleString('pt-BR')}</span></div>
+                        <div className="text-gray-400">Saldo: <span className={`font-bold ${stats.finalBalance >= 0 ? 'text-blue-400' : 'text-red-400'}`}>R$ {stats.finalBalance.toLocaleString('pt-BR')}</span></div>
                     </div>
                 </div>
             </div>
@@ -285,7 +284,7 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
                             <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                         </div>
                         <div className="p-4 overflow-y-auto bg-[#130b20]/50 flex-1 space-y-6 scrollbar-thin scrollbar-thumb-white/10">
-                            {loadingHistory ? <div className="text-center py-10 text-gray-500"><Loader2 className="animate-spin mx-auto mb-2" />Carregando...</div> : aiHistory.length === 0 ? <div className="text-center py-10 text-gray-500">Nada encontrado.</div> : 
+                            {loadingHistory ? <div className="text-center py-10 text-gray-500"><Loader2 className="animate-spin mx-auto mb-2" />Carregando...</div> : aiHistory.length === 0 ? <div className="text-center py-10 text-gray-500">Nada encontrado.</div> :
                                 aiHistory.map((msg: any) => (
                                     <div key={msg.id} className="bg-[#1f1630] border border-white/5 rounded-xl overflow-hidden shadow-lg">
                                         <div className="bg-[#2d2440] px-4 py-2 text-xs font-bold text-gray-400 border-b border-white/5 flex justify-between">
@@ -334,7 +333,7 @@ export default function PlanningTab({ month, year, partnerId, partnerName }: Pla
 function CardList({ title, icon, items, section, colorClass, onAdd, onUpdate, onRemove, readOnly, showCheck }: any) {
     // Calcula o total localmente para o header do card
     const total = items.reduce((acc: number, item: any) => acc + (Number(item.amount) || 0), 0);
-    
+
     return (
         <div className={`rounded-2xl border p-4 flex flex-col h-full ${colorClass}`}>
             <div className="flex items-center justify-between mb-4">
@@ -344,32 +343,32 @@ function CardList({ title, icon, items, section, colorClass, onAdd, onUpdate, on
             <div className="flex-1 space-y-2 mb-4">
                 {items.map((item: any) => (
                     <div key={item.id} className={`flex gap-2 group items-center ${item.isPaid ? 'opacity-50' : ''}`}>
-                         {/* CHECKBOX */}
-                         {showCheck && !readOnly && (
-                            <button 
+                        {/* CHECKBOX */}
+                        {showCheck && !readOnly && (
+                            <button
                                 onClick={() => onUpdate(section, item.id, 'isPaid', !item.isPaid)}
                                 className={`shrink-0 transition-colors ${item.isPaid ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
                             >
                                 {item.isPaid ? <CheckSquare size={18} /> : <Square size={18} />}
                             </button>
-                         )}
+                        )}
 
                         {/* DIA */}
                         <div className="relative w-10 shrink-0">
-                             <input 
+                            <input
                                 disabled={readOnly}
                                 value={item.day || ''}
                                 onChange={(e) => onUpdate(section, item.id, 'day', e.target.value)}
                                 placeholder="Dia"
                                 className="w-full bg-[#130b20]/50 border border-white/5 rounded-lg px-1 py-2 text-[10px] text-white focus:outline-none focus:border-purple-500 text-center font-mono"
                                 maxLength={2}
-                             />
+                            />
                         </div>
-                        
+
                         {/* INPUTS */}
                         <input disabled={readOnly} value={item.name} onChange={(e) => onUpdate(section, item.id, 'name', e.target.value)} placeholder="Descrição" className={`bg-[#130b20]/50 border border-white/5 rounded-lg px-3 py-2 text-sm text-white w-full focus:outline-none focus:border-purple-500 ${item.isPaid ? 'line-through text-gray-500' : ''}`} />
                         <input disabled={readOnly} type="number" value={item.amount || ''} onChange={(e) => onUpdate(section, item.id, 'amount', parseFloat(e.target.value))} placeholder="R$" className="bg-[#130b20]/50 border border-white/5 rounded-lg px-2 py-2 text-sm text-white w-20 text-right focus:outline-none focus:border-purple-500" />
-                        
+
                         {!readOnly && <button onClick={() => onRemove(section, item.id)} className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition px-1"><Trash2 size={14} /></button>}
                     </div>
                 ))}
@@ -387,7 +386,7 @@ function ExcelSection({ items, section, label, color, onAdd, onUpdate, onRemove,
                     {/* CHECKBOX */}
                     <div className="col-span-1 text-center py-2 flex justify-center">
                         {!readOnly && (
-                            <button 
+                            <button
                                 onClick={() => onUpdate(section, item.id, 'isPaid', !item.isPaid)}
                                 className={`transition-colors ${item.isPaid ? 'text-green-400' : 'text-gray-600 hover:text-gray-400'}`}
                             >
@@ -398,7 +397,7 @@ function ExcelSection({ items, section, label, color, onAdd, onUpdate, onRemove,
 
                     {/* DIA */}
                     <div className="col-span-1 py-1 px-2 border-r border-l border-white/5">
-                        <input 
+                        <input
                             disabled={readOnly}
                             value={item.day || ''}
                             onChange={(e) => onUpdate(section, item.id, 'day', e.target.value)}
@@ -406,7 +405,7 @@ function ExcelSection({ items, section, label, color, onAdd, onUpdate, onRemove,
                             placeholder="Dia"
                         />
                     </div>
-                    
+
                     {/* DADOS */}
                     <div className="col-span-6 py-1 px-2 border-l border-white/5">
                         <input disabled={readOnly} value={item.name} onChange={(e) => onUpdate(section, item.id, 'name', e.target.value)} className={`w-full bg-transparent focus:outline-none disabled:opacity-50 ${color} ${item.isPaid ? 'line-through' : ''}`} />

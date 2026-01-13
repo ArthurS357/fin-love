@@ -1221,3 +1221,61 @@ export async function getPartnerMessagesAction() {
 
   return messages.reverse(); // Para mostrar a mais antiga no topo (estilo chat) ou mantém desc para timeline
 }
+
+// --- NOVO: IMPORTAR DO MÊS ANTERIOR ---
+export async function importLastMonthBudgetAction(targetMonth: number, targetYear: number) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error', success: false };
+
+  try {
+    // 1. Calcular data do mês anterior
+    const targetDate = new Date(targetYear, targetMonth, 1);
+    const prevDate = subMonths(targetDate, 1);
+    const prevMonth = prevDate.getMonth();
+    const prevYear = prevDate.getFullYear();
+
+    // 2. Buscar o orçamento anterior
+    const prevBudget = await prisma.monthlyBudget.findUnique({
+      where: { userId_month_year: { userId, month: prevMonth, year: prevYear } }
+    });
+
+    if (!prevBudget || !prevBudget.data) {
+      return { error: 'Não há planejamento no mês anterior para copiar.', success: false };
+    }
+
+    // 3. Parse e Limpeza (Gerar novos IDs para os itens copiados)
+    let sourceData = prevBudget.data;
+    if (typeof sourceData === 'string') sourceData = JSON.parse(sourceData);
+    
+    // Função para renovar IDs e limpar status de "pago"
+    const renewItems = (items: any[]) => items.map(item => ({
+      ...item,
+      id: crypto.randomUUID(), // Gera novo ID
+      isPaid: false,           // Reseta o status de pago
+      amount: Number(item.amount) // Garante número
+    }));
+
+    const newData: BudgetData = {
+      incomes: renewItems((sourceData as any).incomes || []),
+      fixedExpenses: renewItems((sourceData as any).fixedExpenses || []),
+      variableExpenses: renewItems((sourceData as any).variableExpenses || [])
+    };
+
+    // 4. Salvar no mês atual (Sobrescreve ou cria)
+    // O Prisma aceita o objeto direto no campo Json, mas garantimos stringify se necessário
+    const dataToSave = process.env.NODE_ENV === 'development' ? JSON.stringify(newData) : newData;
+
+    await prisma.monthlyBudget.upsert({
+      where: { userId_month_year: { userId, month: targetMonth, year: targetYear } },
+      create: { userId, month: targetMonth, year: targetYear, data: dataToSave as any },
+      update: { data: dataToSave as any }
+    });
+
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Dados importados com sucesso!' };
+
+  } catch (error) {
+    console.error("Erro importação:", error);
+    return { error: 'Erro ao importar dados.', success: false };
+  }
+}

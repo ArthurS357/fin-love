@@ -6,7 +6,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import {
   Home, Heart, ChevronLeft, ChevronRight, Calendar,
   Clock, Plus, Target, LogOut, User as UserIcon, Sparkles, Menu,
-  Eye, EyeOff, History
+  Eye, EyeOff, History, CreditCard as CardIcon
 } from 'lucide-react';
 import { format, isSameMonth, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -28,6 +28,7 @@ export interface Transaction {
   currentInstallment?: number | null;
   isPaid: boolean;
   installmentId?: string | null;
+  creditCardId?: string | null; // <--- NOVO CAMPO
 }
 
 interface DashboardProps {
@@ -40,6 +41,7 @@ interface DashboardProps {
   savingsGoalName: string;
   accumulatedBalance: number;
   selectedDate: { month: number; year: number; };
+  creditCards: any[]; // <--- LISTA DE CARTÕES
 }
 
 // --- UTILS MATEMÁTICOS ---
@@ -77,10 +79,12 @@ const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), { loading: () => <TabS
 const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), { loading: () => <TabSkeleton /> });
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
+const CreditCardModal = dynamic(() => import('./modals/CreditCardModal'), { ssr: false }); // <--- NOVO MODAL
 
 export default function Dashboard({
   initialTransactions, userName, userEmail, partner,
-  spendingLimit, totalSavings, savingsGoalName, accumulatedBalance, selectedDate
+  spendingLimit, totalSavings, savingsGoalName, accumulatedBalance, selectedDate,
+  creditCards // <--- Recebendo os cartões
 }: DashboardProps) {
 
   const router = useRouter();
@@ -91,6 +95,7 @@ export default function Dashboard({
   const [privacyMode, setPrivacyMode] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [isCardModalOpen, setIsCardModalOpen] = useState(false); // <--- ESTADO DO MODAL DE CARTÕES
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
@@ -204,6 +209,12 @@ export default function Dashboard({
                       <button onClick={() => { handleTabChange('profile'); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all">
                         <UserIcon size={16} className="text-purple-400" /> Meu Perfil
                       </button>
+                      
+                      {/* --- NOVO: Botão Gerenciar Cartões --- */}
+                      <button onClick={() => { setIsCardModalOpen(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all">
+                        <CardIcon size={16} className="text-pink-400" /> Cartões
+                      </button>
+                      
                       <div className="h-px bg-white/5 my-1" />
                       <button onClick={async () => { await logoutUser(); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-all">
                         <LogOut size={16} /> Sair
@@ -244,7 +255,7 @@ export default function Dashboard({
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
           {activeTab === 'home' && (
             <HomeTab
-              transactions={monthlyTransactions} // <--- DADOS BRUTOS PASSADOS AQUI
+              transactions={monthlyTransactions} 
               myStats={myStats}
               partnerStats={partnerStats}
               partnerName={partner?.name || 'Parceiro'}
@@ -262,8 +273,15 @@ export default function Dashboard({
         </div>
       </main>
 
-      <TransactionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialData={editingTransaction} />
+      {/* --- MODAIS ATUALIZADOS --- */}
+      <TransactionModal 
+         isOpen={isModalOpen} 
+         onClose={() => setIsModalOpen(false)} 
+         initialData={editingTransaction} 
+         creditCards={creditCards} // <--- Passando cartões
+      />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
+      <CreditCardModal isOpen={isCardModalOpen} onClose={() => setIsCardModalOpen(false)} cards={creditCards} />
 
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 md:hidden w-[94%] max-w-[380px]">
         <nav className="relative bg-[#1a1025]/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] px-2 py-3 flex justify-between items-end">

@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getUserId } from '@/lib/auth';
 import { getDashboardData } from '@/lib/data';
+import { getCreditCardsAction, checkRecurringTransactionsAction } from '../actions';
 import Dashboard from '@/components/Dashboard';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -20,8 +21,14 @@ export default async function DashboardPage(props: PageProps) {
   const monthParam = searchParams.month ? Number(searchParams.month) : now.getMonth();
   const yearParam = searchParams.year ? Number(searchParams.year) : now.getFullYear();
 
-  // 2. Buscar Dados Otimizados (Cache)
-  const data = await getDashboardData(userId, monthParam, yearParam);
+  // 2. Executar verificações automáticas (Recorrência/Faturas)
+  await checkRecurringTransactionsAction();
+
+  // 3. Buscar Dados Otimizados em Paralelo (Dashboard + Cartões)
+  const [data, rawCreditCards] = await Promise.all([
+    getDashboardData(userId, monthParam, yearParam),
+    getCreditCardsAction()
+  ]);
 
   // Se não houver dados (ex: banco resetado mas cookie ativo), 
   // redireciona para a API que tem permissão para deletar o cookie.
@@ -31,12 +38,22 @@ export default async function DashboardPage(props: PageProps) {
 
   const { transactions, accumulatedBalance, totalSavings, user } = data;
 
-  // 3. Serializar para o Cliente
+  // 4. Serializar Transações para o Cliente (Decimal -> Number)
   const serializedTransactions = transactions.map(t => ({
     ...t,
     amount: Number(t.amount),
     date: new Date(t.date).toISOString(),
     type: t.type as 'INCOME' | 'EXPENSE' | 'INVESTMENT',
+    // Mapeia o cartão se existir na transação
+    creditCardId: t.creditCardId || undefined 
+  }));
+
+  // 5. Serializar Cartões para o Cliente (CORREÇÃO DO ERRO)
+  const serializedCreditCards = (rawCreditCards || []).map(card => ({
+    ...card,
+    limit: card.limit ? Number(card.limit) : 0, // Converte Decimal para Number
+    createdAt: card.createdAt.toISOString(),    // Converte Date para String (segurança extra)
+    updatedAt: card.updatedAt.toISOString()
   }));
 
   return (
@@ -69,9 +86,7 @@ export default async function DashboardPage(props: PageProps) {
     }>
       <Dashboard
         initialTransactions={serializedTransactions}
-        // --- CORREÇÃO: Passamos o nome completo aqui ---
         userName={user.name || 'Visitante'}
-        // -----------------------------------------------
         userEmail={user.email || ''}
         partner={user.partner}
         spendingLimit={Number(user.spendingLimit || 0)}
@@ -79,6 +94,7 @@ export default async function DashboardPage(props: PageProps) {
         savingsGoalName={user.savingsGoal || "Caixinha dos Sonhos"}
         accumulatedBalance={accumulatedBalance}
         selectedDate={{ month: monthParam, year: yearParam }}
+        creditCards={serializedCreditCards} // <--- Usando a lista serializada
       />
     </Suspense>
   );

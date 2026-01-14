@@ -4,6 +4,7 @@ import { z } from 'zod';
 // AUTH SCHEMAS
 // ==========================================
 
+
 export const registerSchema = z.object({
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   email: z.string().email("Email inválido"),
@@ -28,6 +29,13 @@ export const passwordSchema = z.object({
 // TRANSACTION SCHEMAS
 // ==========================================
 
+export const creditCardSchema = z.object({
+  name: z.string().min(2, 'Nome deve ter pelo menos 2 letras'),
+  closingDay: z.coerce.number().min(1).max(31),
+  dueDay: z.coerce.number().min(1).max(31),
+  limit: z.coerce.number().optional(),
+});
+
 export const transactionSchema = z.object({
   description: z.string().min(1, "Descrição é obrigatória"),
   amount: z.coerce.number().min(0.01, "Valor deve ser maior que 0"),
@@ -38,6 +46,8 @@ export const transactionSchema = z.object({
   installments: z.coerce.number().optional().default(1),
   isRecurring: z.string().optional(),
   recurringDay: z.coerce.number().min(1).max(31).optional(),
+  creditCardId: z.string().optional(), 
+  isPaid: z.coerce.boolean().optional(),
 });
 
 // ==========================================

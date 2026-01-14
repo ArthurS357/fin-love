@@ -13,29 +13,36 @@ import CategoryManagerModal from './CategoryManagerModal';
 export interface TransactionData {
   id: string;
   type: 'INCOME' | 'EXPENSE' | 'INVESTMENT' | string;
-  // Aceita number, string ou o objeto Decimal do Prisma
   amount: number | string | { toNumber: () => number };
   description: string;
   category: string;
   date: string | Date;
   paymentMethod?: string | null;
   installments?: number | null;
+  creditCardId?: string | null; // <--- NOVO CAMPO NO TIPO
 }
 
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialData?: TransactionData | null;
+  creditCards?: any[]; // <--- RECEBE LISTA DE CARTÕES
 }
 
-// --- 2. Helper de Data Local (Correção de Fuso Horário) ---
+// --- 2. Helper de Data Local ---
 const getLocalDate = () => {
   const local = new Date();
   local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
   return local.toISOString().split('T')[0];
 };
 
-export default function TransactionModal({ isOpen, onClose, initialData }: TransactionModalProps) {
+export default function TransactionModal({ 
+  isOpen, 
+  onClose, 
+  initialData, 
+  creditCards = [] // Default vazio para segurança
+}: TransactionModalProps) {
+  
   const [loading, setLoading] = useState(false);
 
   // Estados do Formulário
@@ -43,12 +50,12 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
-  // Inicializa com a data correta do usuário
   const [date, setDate] = useState(getLocalDate());
 
   // Estados Avançados (Despesas)
   const [paymentMethod, setPaymentMethod] = useState('DEBIT');
   const [installments, setInstallments] = useState(1);
+  const [selectedCardId, setSelectedCardId] = useState(''); // <--- ESTADO DO CARTÃO
 
   // Recorrência
   const [isRecurring, setIsRecurring] = useState(false);
@@ -67,7 +74,6 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
         // MODO EDIÇÃO
         setType(initialData.type);
 
-        // Conversão segura de Decimal/Number para String do input
         const safeAmount = typeof initialData.amount === 'object' && initialData.amount !== null && 'toNumber' in initialData.amount
           ? (initialData.amount as any).toNumber()
           : initialData.amount;
@@ -76,7 +82,6 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
         setDescription(initialData.description || '');
         setCategory(initialData.category || '');
 
-        // Tratamento para Data vinda do Banco
         if (initialData.date) {
           const d = new Date(initialData.date);
           if (!isNaN(d.getTime())) {
@@ -86,16 +91,18 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
 
         setPaymentMethod(initialData.paymentMethod || 'DEBIT');
         setInstallments(initialData.installments || 1);
-        setIsRecurring(false); // Edição não ativa recorrência rápida
+        setSelectedCardId(initialData.creditCardId || ''); // Carrega cartão salvo
+        setIsRecurring(false);
       } else {
         // MODO CRIAÇÃO (Reset)
         setType('EXPENSE');
         setAmount('');
         setDescription('');
         setCategory('');
-        setDate(getLocalDate()); // Reseta para hoje (Local)
+        setDate(getLocalDate());
         setPaymentMethod('DEBIT');
         setInstallments(1);
+        setSelectedCardId(''); // Reseta cartão
         setIsRecurring(false);
         setRecurringDay(new Date().getDate());
       }
@@ -128,6 +135,9 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
       formData.append('paymentMethod', paymentMethod);
       if (paymentMethod === 'CREDIT') {
         formData.append('installments', installments.toString());
+        if (selectedCardId) {
+          formData.append('creditCardId', selectedCardId); // Envia ID do cartão
+        }
       }
     }
 
@@ -252,20 +262,40 @@ export default function TransactionModal({ isOpen, onClose, initialData }: Trans
                     </button>
                   </div>
 
+                  {/* SUB-MENU DO CRÉDITO: PARCELAS + SELEÇÃO DE CARTÃO */}
                   {paymentMethod === 'CREDIT' && (
-                    <div className="animate-in slide-in-from-top-2 pt-1">
-                      <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Parcelamento</label>
-                      <select
-                        value={installments}
-                        onChange={(e) => setInstallments(Number(e.target.value))}
-                        className="w-full bg-[#130b20] text-white px-4 py-3.5 rounded-xl border border-gray-700 focus:border-purple-500 outline-none transition appearance-none cursor-pointer"
-                      >
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map(n => (
-                          <option key={n} value={n} className="bg-[#1a1025]">
-                            {n === 1 ? 'À vista (1x)' : `${n}x parcelas`}
-                          </option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 pt-1">
+                      
+                      {/* Parcelamento */}
+                      <div>
+                        <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Parcelas</label>
+                        <select
+                          value={installments}
+                          onChange={(e) => setInstallments(Number(e.target.value))}
+                          className="w-full bg-[#130b20] text-white px-3 py-3 rounded-xl border border-gray-700 focus:border-purple-500 outline-none transition appearance-none cursor-pointer text-sm"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map(n => (
+                            <option key={n} value={n} className="bg-[#1a1025]">
+                              {n === 1 ? 'À vista (1x)' : `${n}x`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Seletor de Cartão (NOVO) */}
+                      <div>
+                        <label className="text-xs text-gray-500 font-bold uppercase tracking-wider ml-1 mb-1.5 block">Cartão</label>
+                        <select
+                          value={selectedCardId}
+                          onChange={(e) => setSelectedCardId(e.target.value)}
+                          className="w-full bg-[#130b20] text-white px-3 py-3 rounded-xl border border-gray-700 focus:border-purple-500 outline-none transition appearance-none cursor-pointer text-sm"
+                        >
+                          <option value="" className="bg-[#1a1025]">Nenhum / Outro</option>
+                          {creditCards.map(card => (
+                            <option key={card.id} value={card.id} className="bg-[#1a1025]">{card.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   )}
                 </div>

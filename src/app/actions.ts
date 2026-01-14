@@ -2,7 +2,6 @@
 import 'server-only';
 
 import { prisma } from '@/lib/prisma'
-import { Prisma } from '@prisma/client'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
@@ -10,7 +9,6 @@ import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { addMonths, isBefore, setDate, subMonths, startOfMonth, endOfMonth, format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
 import { randomBytes, randomUUID } from 'crypto'
 import { sendPasswordResetEmail } from '@/lib/mail'
 import { investmentSchema } from '@/lib/schemas';

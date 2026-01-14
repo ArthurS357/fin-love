@@ -1,12 +1,18 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Heart, User, Zap, AlertTriangle, ArrowRightLeft, CalendarClock, Users } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'; // Adicionado YAxis e LabelList
+import { 
+  TrendingUp, TrendingDown, DollarSign, Heart, User, Zap, 
+  AlertTriangle, ArrowRightLeft, CalendarClock, Users 
+} from 'lucide-react';
+import { 
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList 
+} from 'recharts';
 import dynamic from 'next/dynamic';
 import { getMonthlyComparisonAction } from '@/app/actions';
 import { getDaysInMonth, isSameMonth } from 'date-fns';
 
+// Importação dinâmica para não travar o carregamento inicial
 const PlanningTab = dynamic(() => import('./PlanningTab'), {
   loading: () => <div className="h-40 bg-white/5 rounded-2xl animate-pulse" />
 });
@@ -14,6 +20,7 @@ const PlanningTab = dynamic(() => import('./PlanningTab'), {
 // Cores vibrantes para o gráfico CSS
 const CHART_COLORS = ['#EC4899', '#8B5CF6', '#F59E0B', '#10B981', '#3B82F6', '#6366f1', '#ec4899'];
 
+// --- TIPAGEM SÓLIDA ---
 interface Transaction {
   id: string;
   amount: number;
@@ -22,11 +29,22 @@ interface Transaction {
   userId: string;
 }
 
+interface FinancialStats {
+  income: number;
+  expense: number;
+  balance: number;
+}
+
+interface ComparisonData {
+  increased: boolean;
+  diffPercent: number;
+}
+
 interface HomeTabProps {
   transactions: Transaction[];
-  myStats: { income: number; expense: number; balance: number };
-  partnerStats: { income: number; expense: number; balance: number };
-  partnerName: string;
+  myStats: FinancialStats;
+  partnerStats: FinancialStats;
+  partnerName?: string; // Pode ser opcional se não tiver parceiro
   hasPartner: boolean;
   privacyMode: boolean;
   month: number;
@@ -36,17 +54,18 @@ interface HomeTabProps {
 
 export default function HomeTab({
   transactions,
-  myStats, partnerStats, partnerName, hasPartner,
+  myStats, partnerStats, partnerName = 'Parceiro', // Valor padrão seguro
+  hasPartner,
   privacyMode, month, year, partnerId
 }: HomeTabProps) {
 
-  const [comparison, setComparison] = useState<any>(null);
+  const [comparison, setComparison] = useState<ComparisonData | null>(null);
   const [filterMode, setFilterMode] = useState<'ALL' | 'ME' | 'PARTNER'>('ALL');
 
   useEffect(() => {
     async function fetchComparison() {
       const res = await getMonthlyComparisonAction(month, year);
-      if (res.success) setComparison(res.data);
+      if (res.success && res.data) setComparison(res.data);
     }
     fetchComparison();
   }, [month, year]);
@@ -56,12 +75,14 @@ export default function HomeTab({
 
   const getBalanceColor = (val: number) => val >= 0 ? 'text-emerald-400' : 'text-red-400';
 
+  // --- LÓGICA DE FILTRAGEM ---
   const filteredTransactions = useMemo(() => {
     if (filterMode === 'ME') return transactions.filter(t => t.userId !== partnerId);
     if (filterMode === 'PARTNER') return transactions.filter(t => t.userId === partnerId);
     return transactions;
   }, [transactions, filterMode, partnerId]);
 
+  // --- DADOS DO GRÁFICO DE ROSCA ---
   const pieData = useMemo(() => {
     const categories: Record<string, number> = {};
     filteredTransactions
@@ -74,6 +95,7 @@ export default function HomeTab({
       .sort((a, b) => b.value - a.value);
   }, [filteredTransactions]);
 
+  // --- DADOS DO GRÁFICO DE BARRAS ---
   const barData = useMemo(() => {
     const income = filteredTransactions.filter(t => t.type === 'INCOME').reduce((acc, t) => acc + Number(t.amount), 0);
     const expense = filteredTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, t) => acc + Number(t.amount), 0);
@@ -83,6 +105,7 @@ export default function HomeTab({
     ];
   }, [filteredTransactions]);
 
+  // --- GRADIENTE CSS PURO (Conic) ---
   const donutGradient = useMemo(() => {
     const total = pieData.reduce((acc, cur) => acc + cur.value, 0);
     if (total === 0) return 'conic-gradient(#333 0% 100%)';
@@ -97,6 +120,7 @@ export default function HomeTab({
     return `conic-gradient(${parts.join(', ')})`;
   }, [pieData]);
 
+  // --- INSIGHTS INTELIGENTES ---
   const villainCategory = useMemo(() => {
     if (pieData.length === 0) return null;
     return pieData[0];
@@ -126,6 +150,9 @@ export default function HomeTab({
     const diff = myStats.expense - fairShare;
     return { amount: Math.abs(diff), action: diff > 0 ? 'RECEIVE' : 'PAY' };
   }, [hasPartner, myStats.expense, partnerStats.expense]);
+
+  // Nome seguro para exibição
+  const safePartnerName = partnerName ? partnerName.split(' ')[0] : 'Parceiro';
 
   return (
     <div className="space-y-8">
@@ -170,7 +197,7 @@ export default function HomeTab({
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-2">
                 <div className="p-1.5 bg-pink-500/10 rounded-lg text-pink-400"><Heart size={14} /></div>
-                <h3 className="text-gray-400 text-sm font-medium">Finanças de {partnerName.split(' ')[0]}</h3>
+                <h3 className="text-gray-400 text-sm font-medium">Finanças de {safePartnerName}</h3>
               </div>
               <p className={`text-3xl font-bold mb-6 ${privacyMode ? 'blur-md select-none text-white' : getBalanceColor(partnerStats.balance)} transition-all duration-300`}>
                 {formatCurrency(partnerStats.balance)}
@@ -207,7 +234,7 @@ export default function HomeTab({
                 <User size={14} /> Eu
               </button>
               <button onClick={() => setFilterMode('PARTNER')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${filterMode === 'PARTNER' ? 'bg-pink-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
-                <Heart size={14} /> {partnerName.split(' ')[0]}
+                <Heart size={14} /> {safePartnerName}
               </button>
               <button onClick={() => setFilterMode('ALL')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${filterMode === 'ALL' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
                 <Users size={14} /> Juntos
@@ -220,7 +247,7 @@ export default function HomeTab({
           {/* 1. GRÁFICO DE ROSCA CSS PURO */}
           <div className="md:col-span-1 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col relative overflow-hidden">
             <h3 className="text-base font-bold text-white mb-6 flex items-center gap-2">
-              <Zap size={16} className="text-yellow-400" /> Gastos {filterMode === 'ME' ? 'Meus' : filterMode === 'PARTNER' ? `de ${partnerName.split(' ')[0]}` : 'Totais'}
+              <Zap size={16} className="text-yellow-400" /> Gastos {filterMode === 'ME' ? 'Meus' : filterMode === 'PARTNER' ? `de ${safePartnerName}` : 'Totais'}
             </h3>
 
             <div className="flex flex-col items-center justify-center flex-1">
@@ -304,7 +331,7 @@ export default function HomeTab({
 
             {/* GRÁFICO DE BARRAS (BALANÇO GERAL) CORRIGIDO */}
             <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col justify-center h-[200px]">
-              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><DollarSign size={14} className="text-emerald-400" /> Balanço {filterMode === 'ME' ? 'Pessoal' : filterMode === 'PARTNER' ? `de ${partnerName.split(' ')[0]}` : 'Geral'}</h3>
+              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><DollarSign size={14} className="text-emerald-400" /> Balanço {filterMode === 'ME' ? 'Pessoal' : filterMode === 'PARTNER' ? `de ${safePartnerName}` : 'Geral'}</h3>
               <div className="h-full w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barData} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
@@ -314,8 +341,9 @@ export default function HomeTab({
                     <Tooltip
                       cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                       contentStyle={{ backgroundColor: '#1a1025', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                      itemStyle={{ color: '#fff' }} // Texto branco na tooltip
+                      itemStyle={{ color: '#fff' }}
                       labelStyle={{ color: '#9ca3af' }}
+                      // CORREÇÃO: Tipagem segura para o formatter
                       formatter={(val: any) => privacyMode ? '••••' : `R$ ${Number(val).toFixed(2)}`}
                     />
                     <Bar dataKey="valor" barSize={24} radius={[0, 4, 4, 0]}>
@@ -326,6 +354,7 @@ export default function HomeTab({
                         position="right"
                         fill="#fff"
                         fontSize={11}
+                        // CORREÇÃO: Tipagem segura para o formatter
                         formatter={(val: any) => privacyMode ? '••••' : `R$ ${Number(val).toLocaleString('pt-BR', { notation: "compact" })}`}
                       />
                     </Bar>

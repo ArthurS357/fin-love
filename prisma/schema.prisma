@@ -13,59 +13,82 @@ datasource db {
 
 // --- MODELO DE USUÁRIO ---
 model User {
-  id               String    @id @default(cuid())
-  name             String?
-  email            String    @unique
-  password         String
-  spendingLimit    Decimal   @default(2000)
-  savingsGoal      String    @default("Caixinha")
-  partnerId        String?   @unique
+  id              String    @id @default(cuid())
+  name            String?
+  email           String    @unique
+  password        String
+  spendingLimit   Decimal   @default(2000)
+  savingsGoal     String    @default("Caixinha")
+  partnerId       String?   @unique
   
   // Campos de IA (Legado - Mantido para compatibilidade)
-  lastAdvice       String?   @db.Text
-  lastAdviceDate   DateTime?
+  lastAdvice      String?   @db.Text
+  lastAdviceDate  DateTime?
 
   // Campos de Recuperação de Senha
-  resetToken       String?   @unique
+  resetToken      String?   @unique
   resetTokenExpiry DateTime?
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relações
-  partner          User?     @relation("Partner", fields: [partnerId], references: [id])
-  partnerOf        User?     @relation("Partner")
+  partner         User?      @relation("Partner", fields: [partnerId], references: [id])
+  partnerOf       User?      @relation("Partner")
 
-  transactions     Transaction[]
-  categories       Category[]
-  badges           Badge[]
-  recurring        RecurringTransaction[]
-  monthlyBudgets   MonthlyBudget[]
-  aiChats          AiChat[]  // Relação com o novo histórico
-  investments      Investment[]
+  transactions    Transaction[]
+  categories      Category[]
+  badges          Badge[]
+  recurring       RecurringTransaction[]
+  monthlyBudgets  MonthlyBudget[]
+  aiChats         AiChat[]   // Relação com o histórico de IA
+  investments     Investment[]
+  creditCards     CreditCard[] // Seus cartões de crédito
 
-  // Adicione estas linhas:
   sentMessages     PartnerMessage[] @relation("SentMessages")
   receivedMessages PartnerMessage[] @relation("ReceivedMessages")
 
   @@index([email]) // Login rápido
 }
 
+// --- NOVO: MODELO DE CARTÃO DE CRÉDITO ---
+model CreditCard {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String   // Ex: Nubank, Inter
+  closingDay  Int      // Dia que fecha a fatura (ex: 25)
+  dueDay      Int      // Dia que vence a fatura (ex: 01)
+  limit       Decimal? @default(0) // Limite opcional do cartão
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
 // --- MODELO DE TRANSAÇÃO ---
 model Transaction {
   id                 String   @id @default(cuid())
   description        String
-  amount             Decimal
+  amount             Decimal  @db.Decimal(10, 2)
   type               String   // INCOME, EXPENSE, INVESTMENT
   category           String
   date               DateTime
   paymentMethod      String?
   installments       Int?
   currentInstallment Int?
+  
+  // Controle de Pagamento (Essencial para Cartão de Crédito)
   isPaid             Boolean  @default(true)
   
   // Identificador único do grupo de parcelas
   installmentId      String?
+  
+  // Vínculo com Cartão de Crédito
+  creditCardId       String?
+  creditCard         CreditCard? @relation(fields: [creditCardId], references: [id])
   
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -76,6 +99,7 @@ model Transaction {
   @@index([userId, date]) // Índice composto: Busca por usuário + data é instantânea
   @@index([userId, type]) // Opcional: Ajuda nos filtros de "Entradas vs Saídas"
   @@index([installmentId]) // Para deletar/buscar todas as parcelas rápido
+  @@index([creditCardId]) // Busca rápida por fatura
 }
 
 // --- MODELO DE TRANSAÇÃO RECORRENTE ---
@@ -145,7 +169,7 @@ model MonthlyBudget {
   @@index([userId, month, year])
 }
 
-// --- NOVO MODELO: HISTÓRICO DE CHAT DA IA ---
+// --- MODELO: HISTÓRICO DE CHAT DA IA ---
 model AiChat {
   id        String   @id @default(cuid())
   userId    String
@@ -161,26 +185,28 @@ model AiChat {
   @@index([createdAt])
 }
 
+// --- MODELO DE INVESTIMENTOS ---
 model Investment {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  name          String   // Ex: "Bitcoin", "CDB Nubank"
-  category      String   // Ex: "CRIPTO", "RENDA_FIXA", "ACOES", "FII"
+  name            String   // Ex: "Bitcoin", "CDB Nubank"
+  category        String   // Ex: "CRIPTO", "RENDA_FIXA", "ACOES", "FII"
   
-  investedAmount Float   // Quanto você tirou do bolso (Preço Médio)
-  currentAmount  Float   // Quanto vale hoje (atualizável)
+  investedAmount  Float    // Quanto você tirou do bolso (Preço Médio)
+  currentAmount   Float    // Quanto vale hoje (atualizável)
   
   // Opcional: Linkar com a transação original do extrato
   originTransactionId String? 
   
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId])
 }
 
+// --- MODELO DE MENSAGENS DE PARCEIRO ---
 model PartnerMessage {
   id         String   @id @default(uuid())
   senderId   String

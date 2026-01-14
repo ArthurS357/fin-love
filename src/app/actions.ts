@@ -140,7 +140,7 @@ export async function logoutUser() {
 }
 
 // ==========================================
-// 2. TRANSAÇÕES (CRUD + PARCELAMENTO)
+// 2. TRANSAÇÕES (CRUD + PARCELAMENTO) - ATUALIZADO
 // ==========================================
 
 export async function addTransaction(formData: FormData) {
@@ -148,6 +148,8 @@ export async function addTransaction(formData: FormData) {
   if (!userId) return { error: 'Usuário não autenticado' }
 
   const rawData = Object.fromEntries(formData);
+
+  // Garante que o schema valida o novo campo creditCardId
   const validation = transactionSchema.safeParse(rawData);
 
   if (!validation.success) {
@@ -163,12 +165,40 @@ export async function addTransaction(formData: FormData) {
     paymentMethod,
     installments,
     isRecurring,
-    recurringDay
+    recurringDay,
+    creditCardId // Captura o ID do cartão selecionado
   } = validation.data;
 
-  const baseDate = date ? new Date(date) : new Date();
+  // Data base inicial
+  let baseDate = date ? new Date(date) : new Date();
+
+  // --- LÓGICA DE CARTÃO DE CRÉDITO INTELIGENTE ---
+  let finalIsPaid = true; // Padrão (Débito, Pix, Dinheiro) é Pago
+
+  if (paymentMethod === 'CREDIT') {
+    finalIsPaid = false; // Crédito nasce Pendente (esperando fatura)
+
+    // Se tiver cartão vinculado, verifica o dia de fechamento
+    if (creditCardId) {
+      try {
+        const card = await prisma.creditCard.findUnique({ where: { id: creditCardId } });
+
+        if (card) {
+          // Se a compra foi feita DEPOIS ou NO DIA do fechamento, joga para o próximo mês
+          if (baseDate.getDate() >= card.closingDay) {
+            baseDate = addMonths(baseDate, 1);
+            // Opcional: Se quiser fixar no dia 1 do mês seguinte, descomente abaixo:
+            // baseDate.setDate(1); 
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao buscar cartão de crédito:", e);
+      }
+    }
+  }
 
   try {
+    // 1. LÓGICA DE PARCELAMENTO NO CRÉDITO
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
       const installmentId = randomUUID();
       const transactionsToCreate = [];
@@ -178,7 +208,9 @@ export async function addTransaction(formData: FormData) {
       const remainderCents = totalCents % installments;
 
       for (let i = 0; i < installments; i++) {
+        // Calcula a data de cada parcela baseada na data (possivelmente ajustada) da primeira
         const futureDate = addMonths(baseDate, i);
+
         const isLast = i === installments - 1;
         const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
 
@@ -192,12 +224,15 @@ export async function addTransaction(formData: FormData) {
           paymentMethod: 'CREDIT',
           installments,
           currentInstallment: i + 1,
-          isPaid: false,
-          installmentId
+          isPaid: false, // Parcelas nascem pendentes
+          installmentId,
+          creditCardId: creditCardId || null // Vincula ao cartão
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
+
     } else {
+      // 2. TRANSAÇÃO ÚNICA (Débito, Pix, ou Crédito à vista)
       await prisma.transaction.create({
         data: {
           userId,
@@ -207,11 +242,13 @@ export async function addTransaction(formData: FormData) {
           category,
           date: baseDate,
           paymentMethod: paymentMethod || 'DEBIT',
-          isPaid: paymentMethod !== 'CREDIT'
+          isPaid: finalIsPaid,
+          creditCardId: creditCardId || null // Vincula ao cartão se existir
         },
       })
     }
 
+    // 3. LÓGICA DE RECORRÊNCIA
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       if (recurringDay) {
@@ -245,8 +282,10 @@ export async function updateTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
   const id = formData.get('id') as string
+
   const rawData = Object.fromEntries(formData)
   const validation = transactionSchema.safeParse(rawData)
+
   if (!validation.success) return { error: validation.error.issues[0].message }
 
   const existingTransaction = await prisma.transaction.findUnique({ where: { id } });
@@ -254,7 +293,8 @@ export async function updateTransaction(formData: FormData) {
     return { error: 'Não autorizado.' };
   }
 
-  const { type, amount, description, category, date } = validation.data
+  // Captura os dados validados, incluindo cartão se houver alteração
+  const { type, amount, description, category, date, creditCardId, isPaid } = validation.data
 
   await prisma.transaction.update({
     where: { id },
@@ -263,7 +303,9 @@ export async function updateTransaction(formData: FormData) {
       amount,
       description,
       category,
-      date: date ? new Date(date) : undefined
+      date: date ? new Date(date) : undefined,
+      creditCardId: creditCardId || null,
+      isPaid: isPaid 
     },
   })
 
@@ -301,10 +343,12 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
 export async function toggleTransactionStatus(id: string, currentStatus: boolean) {
   const userId = await getUserId();
   if (!userId) return;
+
   await prisma.transaction.update({
     where: { id, userId },
     data: { isPaid: !currentStatus }
   });
+
   revalidateTag(`dashboard:${userId}`, 'max');
   revalidatePath('/dashboard');
 }
@@ -1291,9 +1335,9 @@ export async function deleteTransactionsAction(ids: string[]) {
   try {
     // Deleta apenas se pertencerem ao usuário (Segurança)
     const result = await prisma.transaction.deleteMany({
-      where: { 
+      where: {
         id: { in: ids },
-        userId: userId 
+        userId: userId
       }
     });
 
@@ -1304,4 +1348,50 @@ export async function deleteTransactionsAction(ids: string[]) {
     console.error("Erro bulk delete:", error);
     return { error: 'Erro ao excluir itens.' };
   }
+}
+
+// ==========================================
+// 14. GESTÃO DE CARTÕES DE CRÉDITO (NOVO)
+// ==========================================
+
+import { creditCardSchema } from '@/lib/schemas'; // Importe o schema novo
+
+export async function createCreditCardAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const rawData = Object.fromEntries(formData);
+  const validation = creditCardSchema.safeParse(rawData);
+  if (!validation.success) return { error: validation.error.issues[0].message };
+
+  try {
+    await prisma.creditCard.create({
+      data: {
+        userId,
+        name: validation.data.name,
+        closingDay: validation.data.closingDay,
+        dueDay: validation.data.dueDay,
+        limit: validation.data.limit || 0
+      }
+    });
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Cartão adicionado!' };
+  } catch (e) {
+    return { error: 'Erro ao criar cartão.' };
+  }
+}
+
+export async function getCreditCardsAction() {
+  const userId = await getUserId();
+  if (!userId) return [];
+  return await prisma.creditCard.findMany({ where: { userId }, orderBy: { name: 'asc' } });
+}
+
+export async function deleteCreditCardAction(id: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+  // Atenção: Deletar cartão pode deletar transações se não tratar (Cascade no schema)
+  await prisma.creditCard.delete({ where: { id, userId } });
+  revalidatePath('/dashboard');
+  return { success: true };
 }

@@ -18,10 +18,24 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
+CREATE TABLE "CreditCard" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "closingDay" INTEGER NOT NULL,
+    "dueDay" INTEGER NOT NULL,
+    "limit" DECIMAL(65,30) DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "CreditCard_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Transaction" (
     "id" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "amount" DECIMAL(65,30) NOT NULL,
+    "amount" DECIMAL(10,2) NOT NULL,
     "type" TEXT NOT NULL,
     "category" TEXT NOT NULL,
     "date" TIMESTAMP(3) NOT NULL,
@@ -30,6 +44,7 @@ CREATE TABLE "Transaction" (
     "currentInstallment" INTEGER,
     "isPaid" BOOLEAN NOT NULL DEFAULT true,
     "installmentId" TEXT,
+    "creditCardId" TEXT,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -144,6 +159,9 @@ CREATE UNIQUE INDEX "User_resetToken_key" ON "User"("resetToken");
 CREATE INDEX "User_email_idx" ON "User"("email");
 
 -- CreateIndex
+CREATE INDEX "CreditCard_userId_idx" ON "CreditCard"("userId");
+
+-- CreateIndex
 CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date");
 
 -- CreateIndex
@@ -151,6 +169,9 @@ CREATE INDEX "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
 
 -- CreateIndex
 CREATE INDEX "Transaction_installmentId_idx" ON "Transaction"("installmentId");
+
+-- CreateIndex
+CREATE INDEX "Transaction_creditCardId_idx" ON "Transaction"("creditCardId");
 
 -- CreateIndex
 CREATE INDEX "RecurringTransaction_active_nextRun_idx" ON "RecurringTransaction"("active", "nextRun");
@@ -181,6 +202,12 @@ CREATE INDEX "PartnerMessage_receiverId_idx" ON "PartnerMessage"("receiverId");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_partnerId_fkey" FOREIGN KEY ("partnerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CreditCard" ADD CONSTRAINT "CreditCard_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_creditCardId_fkey" FOREIGN KEY ("creditCardId") REFERENCES "CreditCard"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

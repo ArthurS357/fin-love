@@ -5,11 +5,11 @@ import {
   ArrowUpCircle, ArrowDownCircle, Search,
   Trash2, Edit2, Download, Filter,
   CreditCard, Wallet, PiggyBank, Heart, User, Users,
-  ArrowUpDown, Calendar
+  ArrowUpDown, Calendar, CheckSquare, Square, X
 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { exportTransactionsCsvAction } from '@/app/actions';
+import { exportTransactionsCsvAction, deleteTransactionsAction } from '@/app/actions';
 import { toast } from 'sonner';
 
 interface Transaction {
@@ -29,7 +29,7 @@ interface Transaction {
 interface HistoryTabProps {
   transactions: Transaction[];
   onEdit: (t: Transaction) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void; // Mantido para compatibilidade, mas usaremos a bulk action
   partnerId?: string;
   partnerName?: string;
   month: number;
@@ -39,7 +39,7 @@ interface HistoryTabProps {
 export default function HistoryTab({
   transactions,
   onEdit,
-  onDelete,
+  onDelete, // Individual
   partnerId,
   partnerName,
   month,
@@ -47,26 +47,23 @@ export default function HistoryTab({
 }: HistoryTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'INVESTMENT'>('ALL');
-  const [paymentFilter, setPaymentFilter] = useState<string>('ALL'); // NOVO: Filtro Pagamento
-  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT_DESC' | 'AMOUNT_ASC'>('DATE'); // NOVO: Ordenação
-
+  const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<'DATE' | 'AMOUNT_DESC' | 'AMOUNT_ASC'>('DATE');
   const [viewMode, setViewMode] = useState<'ME' | 'PARTNER' | 'BOTH'>('BOTH');
   const [exporting, setExporting] = useState(false);
+
+  // --- ESTADO DE SELEÇÃO EM MASSA ---
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // --- Lógica de Filtragem ---
   const filteredTransactions = useMemo(() => {
     let result = transactions.filter(t => {
-      // 1. Texto
       const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.category.toLowerCase().includes(searchTerm.toLowerCase());
-
-      // 2. Tipo
       const matchesType = filterType === 'ALL' || t.type === filterType;
-
-      // 3. Método de Pagamento (NOVO)
       const matchesPayment = paymentFilter === 'ALL' || t.paymentMethod === paymentFilter;
 
-      // 4. Dono (Eu vs Parceiro)
       let matchesOwner = true;
       const isPartnerTx = partnerId && t.userId === partnerId;
       if (viewMode === 'ME') matchesOwner = !isPartnerTx;
@@ -75,16 +72,14 @@ export default function HistoryTab({
       return matchesSearch && matchesType && matchesOwner && matchesPayment;
     });
 
-    // --- Lógica de Ordenação (NOVO) ---
     return result.sort((a, b) => {
       if (sortBy === 'AMOUNT_DESC') return Number(b.amount) - Number(a.amount);
       if (sortBy === 'AMOUNT_ASC') return Number(a.amount) - Number(b.amount);
-      // Default: Data mais recente primeiro
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
   }, [transactions, searchTerm, filterType, viewMode, partnerId, paymentFilter, sortBy]);
 
-  // --- Resumo Financeiro Dinâmico (NOVO - KPI) ---
+  // --- Resumo Financeiro Dinâmico ---
   const summary = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
       const val = Number(t.amount);
@@ -97,7 +92,7 @@ export default function HistoryTab({
 
   const balance = summary.income - summary.expense - summary.investment;
 
-  // Agrupamento por Data
+  // --- Agrupamento por Data ---
   const groupedTransactions = useMemo(() => {
     const groups: Record<string, Transaction[]> = {};
     filteredTransactions.forEach(t => {
@@ -109,6 +104,44 @@ export default function HistoryTab({
     return groups;
   }, [filteredTransactions]);
 
+  // --- FUNÇÕES DE SELEÇÃO ---
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredTransactions.length) {
+      setSelectedIds(new Set()); // Desmarcar tudo
+    } else {
+      // Selecionar apenas as que pertencem ao usuário (não pode apagar do parceiro)
+      const myIds = filteredTransactions
+        .filter(t => !partnerId || t.userId !== partnerId)
+        .map(t => t.id);
+      setSelectedIds(new Set(myIds));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Tem certeza que deseja excluir ${selectedIds.size} itens?`)) return;
+    
+    setIsBulkDeleting(true);
+    const ids = Array.from(selectedIds);
+    
+    const res = await deleteTransactionsAction(ids);
+    
+    if (res.success) {
+      toast.success(res.message);
+      setSelectedIds(new Set());
+    } else {
+      toast.error(res.error || 'Erro ao excluir.');
+    }
+    setIsBulkDeleting(false);
+  };
+
+  // --- Helpers UI ---
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -133,7 +166,6 @@ export default function HistoryTab({
     }
   };
 
-  // Helpers de UI
   const getIcon = (type: string) => {
     switch (type) {
       case 'INCOME': return <ArrowUpCircle className="text-green-400" size={24} />;
@@ -141,11 +173,6 @@ export default function HistoryTab({
       case 'INVESTMENT': return <PiggyBank className="text-purple-400" size={24} />;
       default: return <Wallet className="text-gray-400" size={24} />;
     }
-  };
-
-  const getPaymentIcon = (method?: string | null) => {
-    if (method === 'CREDIT') return <CreditCard size={12} className="text-pink-400" />;
-    return <Wallet size={12} className="text-gray-400" />;
   };
 
   const formatDateHeader = (dateStr: string) => {
@@ -157,8 +184,8 @@ export default function HistoryTab({
   };
 
   return (
-    <div className="space-y-6 pb-20">
-
+    <div className="space-y-6 pb-32"> {/* pb-32 para dar espaço à barra flutuante */}
+      
       {/* SELETOR DE MODO (PARCEIRO) */}
       {partnerId && (
         <div className="flex justify-center">
@@ -170,7 +197,7 @@ export default function HistoryTab({
         </div>
       )}
 
-      {/* --- NOVO: RESUMO FINANCEIRO (KPIS) --- */}
+      {/* RESUMO (KPIs) */}
       <div className="grid grid-cols-3 gap-2 md:gap-4 animate-in fade-in zoom-in duration-300">
         <div className="bg-[#1f1630] border border-green-500/20 p-3 rounded-xl flex flex-col items-center justify-center shadow-lg">
           <span className="text-[10px] uppercase text-green-400 font-bold tracking-wider mb-1">Entradas</span>
@@ -192,11 +219,18 @@ export default function HistoryTab({
         </div>
       </div>
 
-      {/* BARRA DE FILTROS & PESQUISA */}
+      {/* BARRA DE FILTROS */}
       <div className="bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg sticky top-24 z-20 backdrop-blur-md bg-opacity-95 flex flex-col gap-3">
-
-        {/* Linha 1: Busca e Exportação */}
         <div className="flex gap-2">
+           {/* Botão Selecionar Todos */}
+           <button 
+             onClick={toggleSelectAll} 
+             className="bg-[#130b20] border border-white/10 text-gray-400 p-2.5 rounded-xl hover:text-white transition-colors"
+             title="Selecionar Todos"
+           >
+             {selectedIds.size > 0 && selectedIds.size === filteredTransactions.length ? <CheckSquare size={20} className="text-purple-400" /> : <Square size={20} />}
+           </button>
+
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
             <input
@@ -212,25 +246,20 @@ export default function HistoryTab({
           </button>
         </div>
 
-        {/* Linha 2: Filtros Avançados (Scroll Horizontal) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {/* Dropdown de Ordenação */}
           <div className="relative shrink-0">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
-            >
-              <option value="DATE">Data</option>
-              <option value="AMOUNT_DESC">Maior Valor</option>
-              <option value="AMOUNT_ASC">Menor Valor</option>
-            </select>
-            <ArrowUpDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+             <select 
+               value={sortBy}
+               onChange={(e) => setSortBy(e.target.value as any)}
+               className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
+             >
+               <option value="DATE">Data</option>
+               <option value="AMOUNT_DESC">Maior Valor</option>
+               <option value="AMOUNT_ASC">Menor Valor</option>
+             </select>
+             <ArrowUpDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
-
           <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />
-
-          {/* Botões de Tipo */}
           {['ALL', 'INCOME', 'EXPENSE', 'INVESTMENT'].map((type) => (
             <button
               key={type}
@@ -240,21 +269,19 @@ export default function HistoryTab({
               {type === 'ALL' ? 'Todos' : type === 'INCOME' ? 'Entradas' : type === 'EXPENSE' ? 'Saídas' : 'Invest.'}
             </button>
           ))}
-
-          {/* Filtro de Pagamento Opcional */}
           <div className="relative shrink-0 ml-1">
-            <select
-              value={paymentFilter}
-              onChange={(e) => setPaymentFilter(e.target.value)}
-              className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
-            >
-              <option value="ALL">Pagamento: Todos</option>
-              <option value="CREDIT">Crédito</option>
-              <option value="DEBIT">Débito</option>
-              <option value="PIX">Pix</option>
-              <option value="CASH">Dinheiro</option>
-            </select>
-            <Filter size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+             <select 
+               value={paymentFilter}
+               onChange={(e) => setPaymentFilter(e.target.value)}
+               className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
+             >
+               <option value="ALL">Pagamento: Todos</option>
+               <option value="CREDIT">Crédito</option>
+               <option value="DEBIT">Débito</option>
+               <option value="PIX">Pix</option>
+               <option value="CASH">Dinheiro</option>
+             </select>
+             <Filter size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
         </div>
       </div>
@@ -263,8 +290,8 @@ export default function HistoryTab({
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
         {Object.keys(groupedTransactions).length === 0 ? (
           <div className="text-center py-12 opacity-50">
-            <Filter className="mx-auto mb-2" size={32} />
-            <p>Nada encontrado com esses filtros.</p>
+             <Filter className="mx-auto mb-2" size={32} />
+             <p>Nada encontrado com esses filtros.</p>
           </div>
         ) : (
           Object.entries(groupedTransactions).map(([dateKey, txs]) => (
@@ -276,12 +303,23 @@ export default function HistoryTab({
                 {txs.map((t) => {
                   const isPartner = partnerId && t.userId === partnerId;
                   const ownerName = isPartner ? (partnerName?.split(' ')[0] || 'Parceiro') : 'Você';
-
+                  const isSelected = selectedIds.has(t.id);
+                  
                   return (
-                    <div key={t.id} className="group bg-[#1f1630] hover:bg-[#251a3a] border border-white/5 p-4 rounded-2xl flex items-center justify-between transition-all relative overflow-hidden">
+                    <div 
+                      key={t.id} 
+                      className={`group bg-[#1f1630] border p-4 rounded-2xl flex items-center justify-between transition-all relative overflow-hidden ${isSelected ? 'border-purple-500 bg-[#2a1e3e]' : 'border-white/5 hover:bg-[#251a3a]'}`}
+                    >
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
-
+                      
                       <div className="flex items-center gap-4 pl-2">
+                        {/* CHECKBOX DE SELEÇÃO */}
+                        {!isPartner && (
+                          <button onClick={() => toggleSelect(t.id)} className="text-gray-400 hover:text-white transition-colors">
+                            {isSelected ? <CheckSquare className="text-purple-400" size={20} /> : <Square size={20} />}
+                          </button>
+                        )}
+
                         <div className="p-3 rounded-2xl bg-[#130b20] border border-white/5 shadow-inner">
                           {getIcon(t.type)}
                         </div>
@@ -292,7 +330,7 @@ export default function HistoryTab({
                             {isPartner && viewMode === 'BOTH' && (
                               <span className="px-1.5 py-0.5 rounded border bg-pink-500/10 border-pink-500/20 text-pink-300 text-[10px]">{ownerName}</span>
                             )}
-                            {t.paymentMethod === 'CREDIT' && <span className="text-pink-400 flex items-center gap-1"><CreditCard size={10} /> Crédito</span>}
+                            {t.paymentMethod === 'CREDIT' && <span className="text-pink-400 flex items-center gap-1"><CreditCard size={10}/> Crédito</span>}
                           </div>
                         </div>
                       </div>
@@ -302,7 +340,9 @@ export default function HistoryTab({
                           {t.type === 'EXPENSE' ? '- ' : '+ '}
                           R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
-                        {!isPartner && (
+                        
+                        {/* Ações Individuais (Somem se estiver em modo de seleção para limpar a tela) */}
+                        {!isPartner && selectedIds.size === 0 && (
                           <div className="flex gap-2 justify-end mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => onEdit(t)}><Edit2 size={14} className="text-blue-400" /></button>
                             <button onClick={() => onDelete(t.id)}><Trash2 size={14} className="text-red-400" /></button>
@@ -316,6 +356,27 @@ export default function HistoryTab({
             </div>
           ))
         )}
+      </div>
+
+      {/* --- BARRA FLUTUANTE DE AÇÕES EM MASSA --- */}
+      <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#130b20] border border-purple-500/30 shadow-2xl rounded-full px-6 py-3 flex items-center gap-4 transition-all duration-300 z-50 ${selectedIds.size > 0 ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
+        <span className="text-sm font-bold text-white whitespace-nowrap">
+          {selectedIds.size} selecionado{selectedIds.size > 1 ? 's' : ''}
+        </span>
+        <div className="h-4 w-px bg-white/20"></div>
+        <button 
+          onClick={handleBulkDelete} 
+          disabled={isBulkDeleting}
+          className="flex items-center gap-2 text-red-400 hover:text-red-300 font-bold text-sm transition-colors"
+        >
+          {isBulkDeleting ? 'Excluindo...' : <><Trash2 size={16} /> Excluir</>}
+        </button>
+        <button 
+          onClick={() => setSelectedIds(new Set())} 
+          className="bg-white/10 p-1 rounded-full text-gray-400 hover:text-white"
+        >
+          <X size={14} />
+        </button>
       </div>
     </div>
   );

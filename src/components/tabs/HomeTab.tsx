@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  TrendingUp, TrendingDown, DollarSign, Heart, User, Zap, 
-  AlertTriangle, ArrowRightLeft, CalendarClock, Users 
+import {
+  TrendingUp, TrendingDown, DollarSign, Heart, User, Zap,
+  AlertTriangle, ArrowRightLeft, CalendarClock, Users
 } from 'lucide-react';
-import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList 
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList
 } from 'recharts';
 import dynamic from 'next/dynamic';
 import { getMonthlyComparisonAction } from '@/app/actions';

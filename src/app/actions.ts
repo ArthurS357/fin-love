@@ -1279,3 +1279,29 @@ export async function importLastMonthBudgetAction(targetMonth: number, targetYea
     return { error: 'Erro ao importar dados.', success: false };
   }
 }
+
+// ==========================================
+// 13. AÇÕES EM MASSA (BULK ACTIONS)
+// ==========================================
+
+export async function deleteTransactionsAction(ids: string[]) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  try {
+    // Deleta apenas se pertencerem ao usuário (Segurança)
+    const result = await prisma.transaction.deleteMany({
+      where: { 
+        id: { in: ids },
+        userId: userId 
+      }
+    });
+
+    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidatePath('/dashboard');
+    return { success: true, message: `${result.count} transações excluídas!` };
+  } catch (error) {
+    console.error("Erro bulk delete:", error);
+    return { error: 'Erro ao excluir itens.' };
+  }
+}

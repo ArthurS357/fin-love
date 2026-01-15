@@ -146,8 +146,6 @@ export async function addTransaction(formData: FormData) {
   if (!userId) return { error: 'Usuário não autenticado' }
 
   const rawData = Object.fromEntries(formData);
-
-  // Garante que o schema valida o novo campo creditCardId
   const validation = transactionSchema.safeParse(rawData);
 
   if (!validation.success) {
@@ -164,51 +162,45 @@ export async function addTransaction(formData: FormData) {
     installments,
     isRecurring,
     recurringDay,
-    creditCardId // Captura o ID do cartão selecionado
+    creditCardId
   } = validation.data;
 
   // Data base inicial
   let baseDate = date ? new Date(date) : new Date();
 
-  // --- LÓGICA DE CARTÃO DE CRÉDITO INTELIGENTE ---
-  let finalIsPaid = true; // Padrão (Débito, Pix, Dinheiro) é Pago
+  // --- LÓGICA DE CARTÃO DE CRÉDITO ---
+  let finalIsPaid = true; // Padrão: Pago (Débito/Pix)
 
   if (paymentMethod === 'CREDIT') {
-    finalIsPaid = false; // Crédito nasce Pendente (esperando fatura)
+    finalIsPaid = false; // Crédito nasce Pendente
 
-    // Se tiver cartão vinculado, verifica o dia de fechamento
+    // Se tiver cartão, verifica fechamento
     if (creditCardId) {
       try {
         const card = await prisma.creditCard.findUnique({ where: { id: creditCardId } });
-
         if (card) {
-          // Se a compra foi feita DEPOIS ou NO DIA do fechamento, joga para o próximo mês
+          // Se a compra for feita DEPOIS ou NO DIA do fechamento, joga para o próximo mês
           if (baseDate.getDate() >= card.closingDay) {
             baseDate = addMonths(baseDate, 1);
-            // Opcional: Se quiser fixar no dia 1 do mês seguinte, descomente abaixo:
-            // baseDate.setDate(1); 
           }
         }
       } catch (e) {
-        console.error("Erro ao buscar cartão de crédito:", e);
+        console.error("Erro ao buscar cartão:", e);
       }
     }
   }
 
   try {
-    // 1. LÓGICA DE PARCELAMENTO NO CRÉDITO
+    // 1. LÓGICA DE PARCELAMENTO
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
       const installmentId = randomUUID();
       const transactionsToCreate = [];
-
       const totalCents = Math.round(amount * 100);
       const installmentValueCents = Math.floor(totalCents / installments);
       const remainderCents = totalCents % installments;
 
       for (let i = 0; i < installments; i++) {
-        // Calcula a data de cada parcela baseada na data (possivelmente ajustada) da primeira
         const futureDate = addMonths(baseDate, i);
-
         const isLast = i === installments - 1;
         const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
 
@@ -222,15 +214,15 @@ export async function addTransaction(formData: FormData) {
           paymentMethod: 'CREDIT',
           installments,
           currentInstallment: i + 1,
-          isPaid: false, // Parcelas nascem pendentes
+          isPaid: false,
           installmentId,
-          creditCardId: creditCardId || null // Vincula ao cartão
+          creditCardId: creditCardId || null
         });
       }
       await prisma.transaction.createMany({ data: transactionsToCreate });
 
     } else {
-      // 2. TRANSAÇÃO ÚNICA (Débito, Pix, ou Crédito à vista)
+      // 2. TRANSAÇÃO ÚNICA
       await prisma.transaction.create({
         data: {
           userId,
@@ -241,12 +233,12 @@ export async function addTransaction(formData: FormData) {
           date: baseDate,
           paymentMethod: paymentMethod || 'DEBIT',
           isPaid: finalIsPaid,
-          creditCardId: creditCardId || null // Vincula ao cartão se existir
+          creditCardId: creditCardId || null
         },
       })
     }
 
-    // 3. LÓGICA DE RECORRÊNCIA
+    // 3. RECORRÊNCIA
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       if (recurringDay) {
@@ -266,9 +258,11 @@ export async function addTransaction(formData: FormData) {
       })
     }
 
+    // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
     await checkBadgesAction()
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');
+    
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -280,7 +274,6 @@ export async function updateTransaction(formData: FormData) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
   const id = formData.get('id') as string
-
   const rawData = Object.fromEntries(formData)
   const validation = transactionSchema.safeParse(rawData)
 
@@ -291,7 +284,6 @@ export async function updateTransaction(formData: FormData) {
     return { error: 'Não autorizado.' };
   }
 
-  // Captura os dados validados, incluindo cartão se houver alteração
   const { type, amount, description, category, date, creditCardId, isPaid } = validation.data
 
   await prisma.transaction.update({
@@ -307,7 +299,8 @@ export async function updateTransaction(formData: FormData) {
     },
   })
 
-  revalidateTag(`dashboard:${userId}`, 'max');
+  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
+  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -317,8 +310,11 @@ export async function deleteTransaction(id: string) {
   if (!userId) return { error: 'Auth error' }
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
+  
   await prisma.transaction.delete({ where: { id } })
-  revalidateTag(`dashboard:${userId}`, 'max');
+  
+  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
+  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -330,7 +326,9 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
     await prisma.transaction.deleteMany({
       where: { installmentId: installmentId, userId: userId }
     });
-    revalidateTag(`dashboard:${userId}`, 'max');
+    
+    // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
+    revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');
     return { success: true, message: 'Todas as parcelas foram removidas.' };
   } catch (error) {
@@ -347,7 +345,8 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
     data: { isPaid: !currentStatus }
   });
 
-  revalidateTag(`dashboard:${userId}`, 'max');
+  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
+  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
   revalidatePath('/dashboard');
 }
 

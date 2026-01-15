@@ -262,7 +262,7 @@ export async function addTransaction(formData: FormData) {
     await checkBadgesAction()
     revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');
-    
+
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -295,7 +295,7 @@ export async function updateTransaction(formData: FormData) {
       category,
       date: date ? new Date(date) : undefined,
       creditCardId: creditCardId || null,
-      isPaid: isPaid 
+      isPaid: isPaid
     },
   })
 
@@ -310,9 +310,9 @@ export async function deleteTransaction(id: string) {
   if (!userId) return { error: 'Auth error' }
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
-  
+
   await prisma.transaction.delete({ where: { id } })
-  
+
   // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
   revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
   revalidatePath('/dashboard')
@@ -326,7 +326,7 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
     await prisma.transaction.deleteMany({
       where: { installmentId: installmentId, userId: userId }
     });
-    
+
     // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
     revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');

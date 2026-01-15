@@ -262,7 +262,7 @@ export async function addTransaction(formData: FormData) {
     await checkBadgesAction()
     revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');
-
+    
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -295,7 +295,7 @@ export async function updateTransaction(formData: FormData) {
       category,
       date: date ? new Date(date) : undefined,
       creditCardId: creditCardId || null,
-      isPaid: isPaid
+      isPaid: isPaid 
     },
   })
 
@@ -310,9 +310,9 @@ export async function deleteTransaction(id: string) {
   if (!userId) return { error: 'Auth error' }
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
-
+  
   await prisma.transaction.delete({ where: { id } })
-
+  
   // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
   revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
   revalidatePath('/dashboard')
@@ -326,7 +326,7 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
     await prisma.transaction.deleteMany({
       where: { installmentId: installmentId, userId: userId }
     });
-
+    
     // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
     revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
     revalidatePath('/dashboard');
@@ -516,8 +516,8 @@ export async function linkPartnerAction(formData: FormData) {
     ])
 
     await checkBadgesAction()
-    revalidateTag(`dashboard:${userId}`, 'max');
-    revalidateTag(`dashboard:${partner.id}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
+    revalidateTag(`dashboard:${partner.id}`, 'default');
     revalidatePath('/dashboard')
     return { success: true, message: 'Conectado!' }
   } catch { return { error: 'Erro ao conectar.' } }
@@ -536,8 +536,8 @@ export async function unlinkPartnerAction() {
       prisma.user.update({ where: { id: me.partnerId }, data: { partnerId: null } })
     ])
 
-    revalidateTag(`dashboard:${userId}`, 'max');
-    revalidateTag(`dashboard:${partnerId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
+    revalidateTag(`dashboard:${partnerId}`, 'default');
     revalidatePath('/dashboard')
     return { success: true, message: 'Desconectado.' }
   } catch { return { error: 'Erro.' } }
@@ -549,7 +549,7 @@ export async function updateSpendingLimitAction(formData: FormData) {
   const validation = spendingLimitSchema.safeParse({ limit: formData.get('limit') })
   if (!validation.success) return { error: validation.error.issues[0].message }
   await prisma.user.update({ where: { id: userId }, data: { spendingLimit: validation.data.limit } })
-  revalidateTag(`dashboard:${userId}`, 'max');
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true, message: 'Limite atualizado!' }
 }
@@ -565,7 +565,7 @@ export async function addSavingsAction(formData: FormData) {
     data: { userId, type: 'INVESTMENT', amount, description, category: 'Caixinha', date: new Date() }
   })
   await checkBadgesAction()
-  revalidateTag(`dashboard:${userId}`, 'max');
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true, message: 'Valor guardado!' }
 }
@@ -582,9 +582,9 @@ export async function updateSavingsGoalNameAction(formData: FormData) {
   await prisma.user.update({ where: { id: userId }, data: { savingsGoal: name } })
   if (me.partnerId) {
     await prisma.user.update({ where: { id: me.partnerId }, data: { savingsGoal: name } })
-    revalidateTag(`dashboard:${me.partnerId}`, 'max');
+    revalidateTag(`dashboard:${me.partnerId}`, 'default');
   }
-  revalidateTag(`dashboard:${userId}`, 'max');
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true, message: 'Meta atualizada!' }
 }
@@ -733,7 +733,7 @@ export async function createCategoryAction(formData: FormData) {
       data: { userId, name, color, icon: finalIcon, type: finalType }
     });
     await checkBadgesAction()
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Categoria criada!' };
   } catch (err) {
@@ -746,7 +746,7 @@ export async function deleteCategoryAction(id: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
   await prisma.category.delete({ where: { id, userId } });
-  revalidateTag(`dashboard:${userId}`, 'max');
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard');
   return { success: true };
 }
@@ -796,7 +796,7 @@ export async function checkRecurringTransactionsAction() {
 
     if (newTransactions.length > 0) {
       await prisma.transaction.createMany({ data: newTransactions });
-      revalidateTag(`dashboard:${userId}`, 'max');
+      revalidateTag(`dashboard:${userId}`, 'default');
     }
     await Promise.all(updates);
     revalidatePath('/dashboard');
@@ -1034,7 +1034,7 @@ export async function updateProfileNameAction(formData: FormData) {
   await prisma.user.update({ where: { id: userId }, data: { name } });
 
   // --- CORREÇÃO: Invalidar a TAG específica do usuário ---
-  revalidateTag(`dashboard:${userId}`, 'max');
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard');
 
   return { success: true, message: 'Nome atualizado!' };
@@ -1134,7 +1134,7 @@ export async function addInvestmentAction(formData: FormData) {
     }
 
     // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Investimento criado!' };
 
@@ -1183,7 +1183,7 @@ export async function updateInvestmentBalanceAction(id: string, newCurrentAmount
     });
 
     // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Saldo atualizado!' };
   } catch (error) {
@@ -1202,7 +1202,7 @@ export async function deleteInvestmentAction(id: string) {
     await prisma.investment.delete({ where: { id } });
 
     // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Investimento removido.' };
   } catch (error) {
@@ -1231,9 +1231,9 @@ export async function sendPartnerMessageAction(category: 'LOVE' | 'FINANCE' | 'A
       }
     });
 
-    // --- CORREÇÃO AQUI: Adicionado 'max' ---
-    revalidateTag(`dashboard:${user.partnerId}`, 'max');
-    revalidateTag(`dashboard:${userId}`, 'max');
+    // --- CORREÇÃO AQUI: Adicionado 'default' ---
+    revalidateTag(`dashboard:${user.partnerId}`, 'default');
+    revalidateTag(`dashboard:${userId}`, 'default');
     // ---------------------------------------
 
     revalidatePath('/dashboard');
@@ -1338,7 +1338,7 @@ export async function deleteTransactionsAction(ids: string[]) {
       }
     });
 
-    revalidateTag(`dashboard:${userId}`, 'max');
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: `${result.count} transações excluídas!` };
   } catch (error) {

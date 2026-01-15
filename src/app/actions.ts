@@ -165,8 +165,15 @@ export async function addTransaction(formData: FormData) {
     creditCardId
   } = validation.data;
 
-  // Data base inicial
-  let baseDate = date ? new Date(date) : new Date();
+  // --- CORREÇÃO DE FUSO HORÁRIO (Timezone Fix) ---
+  // Forçamos o horário para 12:00 UTC.
+  // Isso evita que 00:00 UTC vire "Ontem às 21:00" no Brasil (UTC-3).
+  let baseDate = new Date();
+  if (date) {
+    baseDate = new Date(date);
+    baseDate.setUTCHours(12, 0, 0, 0);
+  }
+  // -----------------------------------------------
 
   // --- LÓGICA DE CARTÃO DE CRÉDITO ---
   let finalIsPaid = true; // Padrão: Pago (Débito/Pix)
@@ -182,6 +189,8 @@ export async function addTransaction(formData: FormData) {
           // Se a compra for feita DEPOIS ou NO DIA do fechamento, joga para o próximo mês
           if (baseDate.getDate() >= card.closingDay) {
             baseDate = addMonths(baseDate, 1);
+            // Mantém o horário seguro de meio-dia ao avançar o mês
+            baseDate.setUTCHours(12, 0, 0, 0);
           }
         }
       } catch (e) {
@@ -201,6 +210,9 @@ export async function addTransaction(formData: FormData) {
 
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
+        // Garante que as parcelas futuras também fiquem no meio-dia UTC
+        futureDate.setUTCHours(12, 0, 0, 0);
+
         const isLast = i === installments - 1;
         const currentAmount = (installmentValueCents + (isLast ? remainderCents : 0)) / 100;
 
@@ -241,6 +253,8 @@ export async function addTransaction(formData: FormData) {
     // 3. RECORRÊNCIA
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
+      nextRun.setUTCHours(12, 0, 0, 0); // Segurança na recorrência também
+      
       if (recurringDay) {
         nextRun = setDate(nextRun, recurringDay);
       }
@@ -258,9 +272,8 @@ export async function addTransaction(formData: FormData) {
       })
     }
 
-    // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
     await checkBadgesAction()
-    revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     
     return { success: true }
@@ -286,6 +299,14 @@ export async function updateTransaction(formData: FormData) {
 
   const { type, amount, description, category, date, creditCardId, isPaid } = validation.data
 
+  // --- CORREÇÃO DE FUSO HORÁRIO NA EDIÇÃO ---
+  let finalDate = undefined;
+  if (date) {
+    finalDate = new Date(date);
+    finalDate.setUTCHours(12, 0, 0, 0);
+  }
+  // ------------------------------------------
+
   await prisma.transaction.update({
     where: { id },
     data: {
@@ -293,14 +314,13 @@ export async function updateTransaction(formData: FormData) {
       amount,
       description,
       category,
-      date: date ? new Date(date) : undefined,
+      date: finalDate, // Usa a data corrigida
       creditCardId: creditCardId || null,
       isPaid: isPaid 
     },
   })
 
-  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
-  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -313,8 +333,7 @@ export async function deleteTransaction(id: string) {
   
   await prisma.transaction.delete({ where: { id } })
   
-  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
-  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true }
 }
@@ -327,8 +346,7 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
       where: { installmentId: installmentId, userId: userId }
     });
     
-    // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
-    revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
+    revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Todas as parcelas foram removidas.' };
   } catch (error) {
@@ -345,8 +363,7 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
     data: { isPaid: !currentStatus }
   });
 
-  // --- CORREÇÃO AQUI: ADICIONADO 'default' ---
-  revalidateTag(`dashboard:${userId}`, 'default'); // <--- CORRIGIDO
+  revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard');
 }
 

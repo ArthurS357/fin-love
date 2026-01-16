@@ -1225,20 +1225,29 @@ export async function updateInvestmentBalanceAction(id: string, newCurrentAmount
 
 export async function deleteInvestmentAction(id: string) {
   const userId = await getUserId();
-  if (!userId) return { error: 'Auth error' };
+  if (!userId) return { success: false, error: 'Não autorizado' };
 
   try {
-    const investment = await prisma.investment.findMany({ where: { id, userId } });
-    if (!investment.length) return { error: 'Não autorizado.' };
+    const investment = await prisma.investment.findUnique({
+      where: { id },
+    });
 
-    await prisma.investment.delete({ where: { id } });
+    if (!investment || investment.userId !== userId) {
+      return { success: false, error: 'Investimento não encontrado ou permissão negada.' };
+    }
 
-    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
-    revalidateTag(`dashboard:${userId}`, 'default');
+    await prisma.investment.delete({
+      where: { id },
+    });
+
+    // CORREÇÃO AQUI: Adicionado 'default' como segundo argumento
+    revalidateTag(`investments:${userId}`, 'default'); 
+    revalidateTag(`dashboard:${userId}`, 'default'); // Garante que o total do dashboard atualize
+    
     revalidatePath('/dashboard');
-    return { success: true, message: 'Investimento removido.' };
+    return { success: true, message: 'Investimento removido com sucesso!' };
   } catch (error) {
-    return { error: 'Erro ao excluir.' };
+    return { success: false, error: 'Erro ao excluir investimento.' };
   }
 }
 

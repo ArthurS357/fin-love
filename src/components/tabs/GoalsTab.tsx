@@ -1,18 +1,17 @@
-'use client'
+'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Target, Save, Lightbulb,
-  TrendingUp, Plus, Briefcase, Building, Bitcoin, Landmark, Wallet, EyeOff
+  TrendingUp, Plus, Briefcase, Building, Bitcoin, Landmark, Wallet, EyeOff, Trash2, Loader2
 } from 'lucide-react';
-import { updateSpendingLimitAction, getInvestmentsAction } from '@/app/actions';
+// ADICIONADO: deleteInvestmentAction para permitir exclusão
+import { updateSpendingLimitAction, getInvestmentsAction, deleteInvestmentAction } from '@/app/actions';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import InvestmentModal from '../modals/InvestmentModal';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// --- NOVO COMPONENTE ---
 import CompoundInterestCalculator from '../CompoundInterestCalculator';
 
 interface GoalsTabProps {
@@ -29,7 +28,7 @@ const MOTIVATIONAL_TIPS = [
   "💡 Regra 50-30-20: 50% para o essencial, 30% para desejos e 20% para o futuro.",
   "💡 Antes de comprar algo caro, espere 24h. Se a vontade passar, era impulso.",
   "💡 Pague-se primeiro: invista assim que receber.",
-  "💡 Diversificação é a única 'almoço grátis' do mercado financeiro.",
+  "💡 Diversificação é o único 'almoço grátis' do mercado financeiro.",
   "💡 Revise suas assinaturas mensais recorrentes.",
   "💡 Reinvista seus dividendos para aproveitar os juros compostos.",
   "💡 Evite dívidas de cartão de crédito a todo custo.",
@@ -47,6 +46,9 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
   const [investments, setInvestments] = useState<{ myInvestments: any[], partnerInvestments: any[] }>({ myInvestments: [], partnerInvestments: [] });
   const [isInvestModalOpen, setIsInvestModalOpen] = useState(false);
   const [loadingInvest, setLoadingInvest] = useState(true);
+
+  // Estado para controlar qual item está sendo deletado (para mostrar loading no botão específico)
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchInvestments = async () => {
     const res = await getInvestmentsAction();
@@ -75,6 +77,23 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
     setLoadingLimit(false);
   };
 
+  // --- NOVA FUNÇÃO DE DELETAR ---
+  const handleDeleteInvestment = async (id: string, name: string) => {
+    if (!confirm(`Tem certeza que deseja excluir o ativo "${name}"?`)) return;
+
+    setDeletingId(id);
+    const res = await deleteInvestmentAction(id);
+    
+    if (res.success) {
+      toast.success(res.message);
+      // Atualiza a lista localmente buscando do servidor
+      await fetchInvestments();
+    } else {
+      toast.error(res.error);
+    }
+    setDeletingId(null);
+  };
+
   const myTotal = investments.myInvestments.reduce((acc, i) => acc + Number(i.currentAmount), 0);
   const partnerTotal = investments.partnerInvestments.reduce((acc, i) => acc + Number(i.currentAmount), 0);
   const grandTotal = myTotal + partnerTotal;
@@ -88,10 +107,8 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
     return Object.keys(categories).map(k => ({ name: k.replace('_', ' '), value: categories[k] }));
   }, [investments]);
 
-  // Helper para esconder valores
   const maskValue = (val: number) => privacyMode ? '••••••' : formatCurrency(val);
 
-  // --- Lógica de Cores e Estilos para os Cards ---
   const getCategoryStyles = (cat: string) => {
     switch (cat) {
       case 'CRIPTO':
@@ -295,6 +312,8 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
                     inv={inv}
                     styles={getCategoryStyles(inv.category)}
                     privacyMode={privacyMode}
+                    onDelete={() => handleDeleteInvestment(inv.id, inv.name)} // Passando a função de deletar
+                    isDeleting={deletingId === inv.id}
                   />
                 ))
               )}
@@ -321,6 +340,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
                     inv={inv}
                     styles={getCategoryStyles(inv.category)}
                     privacyMode={privacyMode}
+                    // Não passamos onDelete aqui para não deletar os do parceiro acidentalmente
                   />
                 ))
               )}
@@ -344,7 +364,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
 }
 
 // Subcomponente de Cartão com Estilos Dinâmicos (Glow Effect)
-function InvestmentCard({ inv, styles, privacyMode }: any) {
+function InvestmentCard({ inv, styles, privacyMode, onDelete, isDeleting }: any) {
   return (
     <div className={`
       relative bg-[#130b20] p-3 rounded-xl border border-white/5 
@@ -361,13 +381,27 @@ function InvestmentCard({ inv, styles, privacyMode }: any) {
           <p className="text-[10px] text-gray-500 group-hover:text-gray-400 transition-colors">{inv.category.replace('_', ' ')}</p>
         </div>
       </div>
-      <div className="text-right">
-        <p className={`text-sm font-bold transition-all ${privacyMode ? 'text-gray-500' : 'text-emerald-400 group-hover:text-emerald-300'}`}>
-          {privacyMode ? '••••••' : formatCurrency(inv.currentAmount)}
-        </p>
-        <p className="text-[10px] text-gray-600 group-hover:text-gray-500">
-          Investido: {privacyMode ? '•••' : formatCurrency(inv.investedAmount)}
-        </p>
+      <div className="flex items-center gap-4">
+        <div className="text-right">
+          <p className={`text-sm font-bold transition-all ${privacyMode ? 'text-gray-500' : 'text-emerald-400 group-hover:text-emerald-300'}`}>
+            {privacyMode ? '••••••' : formatCurrency(inv.currentAmount)}
+          </p>
+          <p className="text-[10px] text-gray-600 group-hover:text-gray-500">
+            Investido: {privacyMode ? '•••' : formatCurrency(inv.investedAmount)}
+          </p>
+        </div>
+        
+        {/* Botão de Deletar (Só aparece se a prop onDelete for passada e no hover) */}
+        {onDelete && (
+          <button 
+            onClick={onDelete} 
+            disabled={isDeleting}
+            className="opacity-0 group-hover:opacity-100 p-2 text-red-400 hover:bg-red-500/10 rounded-full transition-all duration-300"
+            title="Excluir Ativo"
+          >
+            {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+          </button>
+        )}
       </div>
     </div>
   );

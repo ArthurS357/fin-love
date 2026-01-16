@@ -12,6 +12,9 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import InvestmentModal from '../modals/InvestmentModal';
 import { Skeleton } from '@/components/ui/skeleton';
 
+// --- NOVO COMPONENTE ---
+import CompoundInterestCalculator from '../CompoundInterestCalculator';
+
 interface GoalsTabProps {
   income: number;
   expense: number;
@@ -88,7 +91,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
   // Helper para esconder valores
   const maskValue = (val: number) => privacyMode ? '••••••' : formatCurrency(val);
 
-  // --- NOVO: Lógica de Cores e Estilos para os Cards ---
+  // --- Lógica de Cores e Estilos para os Cards ---
   const getCategoryStyles = (cat: string) => {
     switch (cat) {
       case 'CRIPTO':
@@ -324,6 +327,11 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
             </div>
           </div>
         </div>
+      </div>
+
+      {/* --- SEÇÃO 3: SIMULADOR DE JUROS COMPOSTOS (NOVO) --- */}
+      <div className="mt-8">
+         <CompoundInterestCalculator />
       </div>
 
       <InvestmentModal

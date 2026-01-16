@@ -14,6 +14,11 @@ import { getMonthlyComparisonAction, payCreditCardBillAction } from '@/app/actio
 import { getDaysInMonth, isSameMonth } from 'date-fns';
 import { toast } from 'sonner';
 
+// --- NOVOS COMPONENTES DE SAÚDE FINANCEIRA ---
+// Certifique-se de ter criado estes arquivos em src/components/
+import FinLoveScore from '../FinLoveScore';
+import Rule503020 from '../Rule503020';
+
 // Importação dinâmica
 const PlanningTab = dynamic(() => import('./PlanningTab'), {
   loading: () => <div className="h-40 bg-white/5 rounded-2xl animate-pulse" />
@@ -64,6 +69,7 @@ interface HomeTabProps {
   partnerId?: string;
   totalCreditOpen?: number;
   creditCards?: CreditCardData[];
+  spendingLimit?: number; // Adicionado para o Score
 }
 
 export default function HomeTab({
@@ -72,12 +78,13 @@ export default function HomeTab({
   hasPartner,
   privacyMode, month, year, partnerId,
   totalCreditOpen = 0,
-  creditCards = []
+  creditCards = [],
+  spendingLimit = 2000 // Valor padrão seguro
 }: HomeTabProps) {
 
   const [comparison, setComparison] = useState<ComparisonData | null>(null);
   const [filterMode, setFilterMode] = useState<'ALL' | 'ME' | 'PARTNER'>('ALL');
-  const [isPaying, setIsPaying] = useState(false); // Estado para o botão de pagar
+  const [isPaying, setIsPaying] = useState(false);
 
   useEffect(() => {
     async function fetchComparison() {
@@ -134,8 +141,6 @@ export default function HomeTab({
       return;
     }
 
-    // Se o cartão for "unknown", significa que as transações estão sem cartão vinculado.
-    // O backend precisa do ID do cartão.
     const cardIdToPay = targetCard.id === 'unknown' ? null : targetCard.id;
 
     if (!cardIdToPay && targetCard.id === 'unknown') {
@@ -148,7 +153,6 @@ export default function HomeTab({
     }
 
     setIsPaying(true);
-    // Chama a Server Action
     const res = await payCreditCardBillAction(cardIdToPay as string, month, year);
     
     if (res.success) {
@@ -294,7 +298,7 @@ export default function HomeTab({
         </div>
       )}
 
-      {/* --- SEÇÃO 2: ÁREA DE CARTÃO DE CRÉDITO REPAGINADA --- */}
+      {/* --- SEÇÃO 2: ÁREA DE CARTÃO DE CRÉDITO --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         
         {/* WIDGET DE CARTÃO: Visual Físico + Resumo */}
@@ -342,7 +346,7 @@ export default function HomeTab({
               </div>
             </div>
 
-            {/* Rodapé do Cartão: Info Rápida */}
+            {/* Rodapé do Cartão */}
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
               {creditAnalysis.biggestInvoice && creditAnalysis.biggestInvoice.info ? (
                 <div className="flex flex-col">
@@ -440,7 +444,13 @@ export default function HomeTab({
         </div>
       </div>
 
-      {/* SEÇÃO 3: OUTROS INSIGHTS (Manter o Grid Anterior) */}
+      {/* --- SEÇÃO 3: SAÚDE FINANCEIRA (NOVA) --- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4">
+         <FinLoveScore transactions={filteredTransactions} limit={spendingLimit} />
+         <Rule503020 transactions={filteredTransactions} />
+      </div>
+
+      {/* SEÇÃO 4: OUTROS INSIGHTS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* VILÃO DO MÊS */}
         <div className="bg-[#1f1630] border border-red-500/20 p-4 rounded-2xl relative overflow-hidden group">
@@ -485,7 +495,7 @@ export default function HomeTab({
         </div>
       </div>
 
-      {/* SEÇÃO 4: GRÁFICOS INFERIORES */}
+      {/* SEÇÃO 5: GRÁFICOS INFERIORES */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* ROSCA DE CATEGORIAS */}
         <div className="md:col-span-1 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col relative overflow-hidden">

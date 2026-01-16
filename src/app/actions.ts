@@ -1486,3 +1486,53 @@ export async function payCreditCardBillAction(cardId: string, month: number, yea
     return { error: 'Erro ao processar pagamento da fatura.' };
   }
 }
+
+// ==========================================
+// 16. IMPORTAÇÃO EM MASSA (CSV)
+// ==========================================
+
+export async function createBulkTransactionsAction(transactions: any[]) {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Auth error' };
+
+  try {
+    // Busca o usuário para saber quem é o parceiro
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, partnerId: true, name: true, partner: { select: { name: true } } }
+    });
+
+    const dataToCreate = transactions.map(t => {
+      // Lógica inteligente para definir de quem é a transação baseada no nome do CSV
+      let targetUserId = userId;
+      const ownerName = t.owner ? t.owner.toLowerCase().trim() : '';
+      
+      // Se o nome no CSV parecer com o do parceiro, atribui a ele
+      if (user?.partnerId && user.partner?.name && ownerName.includes(user.partner.name.toLowerCase().split(' ')[0])) {
+        targetUserId = user.partnerId;
+      }
+
+      return {
+        userId: targetUserId,
+        description: t.description,
+        amount: Number(t.amount),
+        type: t.type, // INCOME, EXPENSE, INVESTMENT
+        category: t.category || 'Outros',
+        date: new Date(t.date),
+        isPaid: t.status === 'Pago', // Mapeia 'Pago' para true
+        paymentMethod: t.paymentMethod || 'DEBIT' 
+      };
+    });
+
+    await prisma.transaction.createMany({ data: dataToCreate });
+
+    revalidateTag(`dashboard:${userId}`, 'default');
+    if (user?.partnerId) revalidateTag(`dashboard:${user.partnerId}`, 'default');
+    revalidatePath('/dashboard');
+
+    return { success: true, count: dataToCreate.length };
+  } catch (error) {
+    console.error("Bulk create error:", error);
+    return { success: false, error: 'Erro ao importar dados.' };
+  }
+}

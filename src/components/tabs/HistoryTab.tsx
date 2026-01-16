@@ -12,6 +12,11 @@ import { ptBR } from 'date-fns/locale';
 import { exportTransactionsCsvAction, deleteTransactionsAction } from '@/app/actions';
 import { toast } from 'sonner';
 
+// --- NOVOS COMPONENTES ---
+// (Certifique-se de criar estes componentes na pasta src/components)
+import CsvImporter from '../CsvImporter';
+import FinancialCalendar from '../FinancialCalendar';
+
 interface Transaction {
   id: string;
   description: string;
@@ -196,6 +201,17 @@ export default function HistoryTab({
         </div>
       )}
 
+      {/* --- NOVA ÁREA: CALENDÁRIO & IMPORTADOR --- */}
+      {/* Esta grid organiza o Calendário e o Importador lado a lado em telas grandes */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+         <div className="lg:col-span-2">
+            <FinancialCalendar transactions={transactions} month={month} year={year} />
+         </div>
+         <div>
+            <CsvImporter />
+         </div>
+      </div>
+
       {/* RESUMO (KPIs) */}
       <div className="grid grid-cols-3 gap-2 md:gap-4 animate-in fade-in zoom-in duration-300">
         <div className="bg-[#1f1630] border border-green-500/20 p-3 rounded-xl flex flex-col items-center justify-center shadow-lg">
@@ -328,7 +344,6 @@ export default function HistoryTab({
                               <span className="px-1.5 py-0.5 rounded border bg-pink-500/10 border-pink-500/20 text-pink-300 text-[10px]">{ownerName}</span>
                             )}
                             
-                            {/* --- STATUS DE PAGAMENTO (NOVIDADE) --- */}
                             {t.paymentMethod === 'CREDIT' && (
                               <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${t.isPaid ? 'border-green-500/20 text-green-400 bg-green-500/10' : 'border-orange-500/20 text-orange-400 bg-orange-500/10'}`}>
                                 <CreditCard size={10} />

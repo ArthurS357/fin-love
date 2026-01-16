@@ -29,7 +29,7 @@ interface Transaction {
 interface HistoryTabProps {
   transactions: Transaction[];
   onEdit: (t: Transaction) => void;
-  onDelete: (id: string) => void; // Mantido para compatibilidade, mas usaremos a bulk action
+  onDelete: (id: string) => void; 
   partnerId?: string;
   partnerName?: string;
   month: number;
@@ -39,7 +39,7 @@ interface HistoryTabProps {
 export default function HistoryTab({
   transactions,
   onEdit,
-  onDelete, // Individual
+  onDelete, 
   partnerId,
   partnerName,
   month,
@@ -116,7 +116,6 @@ export default function HistoryTab({
     if (selectedIds.size === filteredTransactions.length) {
       setSelectedIds(new Set()); // Desmarcar tudo
     } else {
-      // Selecionar apenas as que pertencem ao usuário (não pode apagar do parceiro)
       const myIds = filteredTransactions
         .filter(t => !partnerId || t.userId !== partnerId)
         .map(t => t.id);
@@ -184,7 +183,7 @@ export default function HistoryTab({
   };
 
   return (
-    <div className="space-y-6 pb-32"> {/* pb-32 para dar espaço à barra flutuante */}
+    <div className="space-y-6 pb-32">
       
       {/* SELETOR DE MODO (PARCEIRO) */}
       {partnerId && (
@@ -222,7 +221,6 @@ export default function HistoryTab({
       {/* BARRA DE FILTROS */}
       <div className="bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg sticky top-24 z-20 backdrop-blur-md bg-opacity-95 flex flex-col gap-3">
         <div className="flex gap-2">
-           {/* Botão Selecionar Todos */}
            <button 
              onClick={toggleSelectAll} 
              className="bg-[#130b20] border border-white/10 text-gray-400 p-2.5 rounded-xl hover:text-white transition-colors"
@@ -313,7 +311,6 @@ export default function HistoryTab({
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
                       
                       <div className="flex items-center gap-4 pl-2">
-                        {/* CHECKBOX DE SELEÇÃO */}
                         {!isPartner && (
                           <button onClick={() => toggleSelect(t.id)} className="text-gray-400 hover:text-white transition-colors">
                             {isSelected ? <CheckSquare className="text-purple-400" size={20} /> : <Square size={20} />}
@@ -330,7 +327,14 @@ export default function HistoryTab({
                             {isPartner && viewMode === 'BOTH' && (
                               <span className="px-1.5 py-0.5 rounded border bg-pink-500/10 border-pink-500/20 text-pink-300 text-[10px]">{ownerName}</span>
                             )}
-                            {t.paymentMethod === 'CREDIT' && <span className="text-pink-400 flex items-center gap-1"><CreditCard size={10}/> Crédito</span>}
+                            
+                            {/* --- STATUS DE PAGAMENTO (NOVIDADE) --- */}
+                            {t.paymentMethod === 'CREDIT' && (
+                              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${t.isPaid ? 'border-green-500/20 text-green-400 bg-green-500/10' : 'border-orange-500/20 text-orange-400 bg-orange-500/10'}`}>
+                                <CreditCard size={10} />
+                                {t.isPaid ? 'Fatura Paga' : 'Pendente'}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -341,7 +345,6 @@ export default function HistoryTab({
                           R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
                         
-                        {/* Ações Individuais (Somem se estiver em modo de seleção para limpar a tela) */}
                         {!isPartner && selectedIds.size === 0 && (
                           <div className="flex gap-2 justify-end mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => onEdit(t)}><Edit2 size={14} className="text-blue-400" /></button>

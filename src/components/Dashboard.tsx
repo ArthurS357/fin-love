@@ -28,7 +28,7 @@ export interface Transaction {
   currentInstallment?: number | null;
   isPaid: boolean;
   installmentId?: string | null;
-  creditCardId?: string | null; // <--- NOVO CAMPO
+  creditCardId?: string | null;
 }
 
 interface DashboardProps {
@@ -41,7 +41,8 @@ interface DashboardProps {
   savingsGoalName: string;
   accumulatedBalance: number;
   selectedDate: { month: number; year: number; };
-  creditCards: any[]; // <--- LISTA DE CARTÕES
+  creditCards: any[];
+  totalCreditOpen: number; // <--- NOVA PROP: Total de faturas em aberto
 }
 
 // --- UTILS MATEMÁTICOS ---
@@ -79,12 +80,12 @@ const GoalsTab = dynamic(() => import('./tabs/GoalsTab'), { loading: () => <TabS
 const ProfileTab = dynamic(() => import('./tabs/ProfileTab'), { loading: () => <TabSkeleton /> });
 const TransactionModal = dynamic(() => import('./modals/TransactionModal'), { ssr: false });
 const AIReportModal = dynamic(() => import('./modals/AIReportModal'), { ssr: false });
-const CreditCardModal = dynamic(() => import('./modals/CreditCardModal'), { ssr: false }); // <--- NOVO MODAL
+const CreditCardModal = dynamic(() => import('./modals/CreditCardModal'), { ssr: false });
 
 export default function Dashboard({
   initialTransactions, userName, userEmail, partner,
   spendingLimit, totalSavings, savingsGoalName, accumulatedBalance, selectedDate,
-  creditCards // <--- Recebendo os cartões
+  creditCards, totalCreditOpen // <--- Recebendo a nova prop
 }: DashboardProps) {
 
   const router = useRouter();
@@ -95,7 +96,7 @@ export default function Dashboard({
   const [privacyMode, setPrivacyMode] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
-  const [isCardModalOpen, setIsCardModalOpen] = useState(false); // <--- ESTADO DO MODAL DE CARTÕES
+  const [isCardModalOpen, setIsCardModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
@@ -138,10 +139,26 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
+  // --- CÁLCULO DE ESTATÍSTICAS (CORRIGIDO PARA O NOVO FLUXO) ---
   const calculateStats = (txs: Transaction[]) => {
+    // 1. Gráficos de Consumo: Consideram TUDO (Pago + Crédito Pendente)
+    // Isso mostra "quanto você consumiu" no mês, independente se já saiu do bolso.
     const income = txs.filter(t => t.type === 'INCOME').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
     const expense = txs.filter(t => t.type === 'EXPENSE').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
-    const balance = fromCents(toCents(income) - toCents(expense));
+    
+    // 2. Saldo Real (Caixa): Considera APENAS O QUE FOI PAGO
+    // Isso evita que compras no crédito "comam" o saldo antes da hora.
+    const paidIncome = txs
+      .filter(t => t.type === 'INCOME' && t.isPaid)
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+
+    const paidExpense = txs
+      .filter(t => t.type === 'EXPENSE' && t.isPaid) 
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+
+    // Saldo = Entradas Reais - Saídas Reais
+    const balance = fromCents(toCents(paidIncome) - toCents(paidExpense));
+    
     return { income, expense, balance };
   };
 
@@ -183,7 +200,7 @@ export default function Dashboard({
             <button onClick={() => setPrivacyMode(!privacyMode)} className={`p-2 transition rounded-full hover:bg-white/5 ${privacyMode ? 'text-pink-400' : 'text-purple-300 hover:text-white'}`}>
               {privacyMode ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
-             <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-300 hover:text-white transition rounded-full hover:bg-white/5" title="Histórico IA">
+            <button onClick={() => setIsAIModalOpen(true)} className="p-2 text-purple-300 hover:text-white transition rounded-full hover:bg-white/5" title="Histórico IA">
               <History size={20} />
             </button>
             <button onClick={() => setIsAIModalOpen(true)} className="flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full text-xs font-bold transition border border-purple-500/20 active:scale-95">
@@ -192,7 +209,7 @@ export default function Dashboard({
             <button onClick={handleOpenNew} className="hidden md:flex items-center gap-2 bg-white text-purple-950 px-5 py-2.5 rounded-full text-sm font-bold hover:bg-pink-50 transition hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
               <Plus size={18} strokeWidth={3} /><span>Novo</span>
             </button>
-            
+
             <div className="relative">
               <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 rounded-full transition-all border ${isMenuOpen ? 'bg-white/10 text-white border-white/10' : 'text-gray-300 border-transparent hover:bg-white/5'}`}>
                 <Menu size={24} />
@@ -209,12 +226,11 @@ export default function Dashboard({
                       <button onClick={() => { handleTabChange('profile'); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all">
                         <UserIcon size={16} className="text-purple-400" /> Meu Perfil
                       </button>
-                      
-                      {/* --- NOVO: Botão Gerenciar Cartões --- */}
+
                       <button onClick={() => { setIsCardModalOpen(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all">
                         <CardIcon size={16} className="text-pink-400" /> Cartões
                       </button>
-                      
+
                       <div className="h-px bg-white/5 my-1" />
                       <button onClick={async () => { await logoutUser(); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-all">
                         <LogOut size={16} /> Sair
@@ -255,7 +271,7 @@ export default function Dashboard({
         <div key={activeTab} className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
           {activeTab === 'home' && (
             <HomeTab
-              transactions={monthlyTransactions} 
+              transactions={monthlyTransactions}
               myStats={myStats}
               partnerStats={partnerStats}
               partnerName={partner?.name || 'Parceiro'}
@@ -264,6 +280,8 @@ export default function Dashboard({
               month={selectedDate.month}
               year={selectedDate.year}
               partnerId={partnerId}
+              totalCreditOpen={totalCreditOpen} // <--- Passando valor para a Home
+              creditCards={creditCards}
             />
           )}
           {activeTab === 'goals' && <GoalsTab income={myStats.income + partnerStats.income} expense={myStats.expense + partnerStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} privacyMode={privacyMode} />}
@@ -273,12 +291,11 @@ export default function Dashboard({
         </div>
       </main>
 
-      {/* --- MODAIS ATUALIZADOS --- */}
-      <TransactionModal 
-         isOpen={isModalOpen} 
-         onClose={() => setIsModalOpen(false)} 
-         initialData={editingTransaction} 
-         creditCards={creditCards} // <--- Passando cartões
+      <TransactionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        initialData={editingTransaction}
+        creditCards={creditCards}
       />
       <AIReportModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} userName={userName} />
       <CreditCardModal isOpen={isCardModalOpen} onClose={() => setIsCardModalOpen(false)} cards={creditCards} />

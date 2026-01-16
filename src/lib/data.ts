@@ -1,83 +1,90 @@
-import 'server-only';
 import { prisma } from '@/lib/prisma';
-import { startOfMonth, endOfMonth } from 'date-fns';
-import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
+import { startOfMonth, endOfMonth } from 'date-fns';
 
-// Função auxiliar para buscar usuário (Cacheada por Request Memoization)
-export const getUserData = cache(async (userId: string) => {
-  return await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      spendingLimit: true,
-      savingsGoal: true,
-      partnerId: true,
-      partner: { select: { id: true, name: true, email: true } }
-    }
-  });
-});
+export async function getDashboardData(userId: string, month: number, year: number) {
+  const fetchData = async () => {
+    // 1. Buscar Usuário e Parceiro
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        spendingLimit: true,
+        partnerId: true,
+        savingsGoal: true,
+        partner: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
 
-// Lógica interna de busca (sem cache, apenas a query crua)
-const fetchDashboardData = async (userId: string, month: number, year: number) => {
-  const user = await getUserData(userId);
-  if (!user) return null;
-  
-  const targetUserIds = [userId];
-  if (user.partnerId) targetUserIds.push(user.partnerId);
+    if (!user) return null;
 
-  const queryDate = new Date(year, month, 1);
-  const startDate = startOfMonth(queryDate);
-  const endDate = endOfMonth(queryDate);
+    const userIds = [user.id];
+    if (user.partnerId) userIds.push(user.partnerId);
 
-  const [transactions, financialSummary, savingsAgg] = await Promise.all([
-    // 1. Transações do Mês
-    prisma.transaction.findMany({
+    const startDate = startOfMonth(new Date(year, month, 1));
+    const endDate = endOfMonth(new Date(year, month, 1));
+
+    // 2. Buscar Transações do Mês (Para a lista detalhada)
+    // Aqui buscamos TODAS (pagas e pendentes) para mostrar no extrato e gráficos
+    const transactions = await prisma.transaction.findMany({
       where: {
-        userId: { in: targetUserIds },
-        date: { gte: startDate, lte: endDate }
+        userId: { in: userIds },
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
       },
-      orderBy: { date: 'desc' }
-    }),
+      orderBy: {
+        date: 'desc'
+      }
+    });
 
-    // 2. Resumo para Saldo (Histórico Completo)
-    prisma.transaction.groupBy({
+    // 3. Calcular Saldo Acumulado (Total Geral de todos os tempos)
+    const balanceAgg = await prisma.transaction.groupBy({
       by: ['type'],
-      where: { userId: { in: targetUserIds } },
-      _sum: { amount: true }
-    }),
+      where: {
+        userId: { in: userIds },
+        isPaid: true // <--- AQUI ESTÁ O SEGREDO
+      },
+      _sum: {
+        amount: true
+      }
+    });
 
-    // 3. Total Guardado
-    prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { userId: { in: targetUserIds }, type: 'INVESTMENT' }
-    })
-  ]);
+    const totalIncome = Number(balanceAgg.find(b => b.type === 'INCOME')?._sum.amount || 0);
+    const totalExpense = Number(balanceAgg.find(b => b.type === 'EXPENSE')?._sum.amount || 0);
+    const totalInvested = Number(balanceAgg.find(b => b.type === 'INVESTMENT')?._sum.amount || 0);
 
-  const totalIncome = Number(financialSummary.find(f => f.type === 'INCOME')?._sum.amount || 0);
-  const totalExpense = Number(financialSummary.find(f => f.type === 'EXPENSE')?._sum.amount || 0);
-  const totalInvested = Number(financialSummary.find(f => f.type === 'INVESTMENT')?._sum.amount || 0);
-  const accumulatedBalance = totalIncome - totalExpense - totalInvested;
+    // Saldo real disponível agora na conta
+    const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
-  return {
-    transactions,
-    accumulatedBalance,
-    totalSavings: Number(savingsAgg._sum.amount || 0),
-    user
+    // 4. Calcular Total Guardado (Investimentos)
+    const totalSavings = totalInvested;
+
+    return {
+      user,
+      transactions,
+      accumulatedBalance,
+      totalSavings
+    };
   };
-};
 
-// --- AQUI ESTÁ A OTIMIZAÇÃO (Data Cache) ---
-export const getDashboardData = async (userId: string, month: number, year: number) => {
-  // Envolvemos a busca no unstable_cache
-  return await unstable_cache(
-    async () => fetchDashboardData(userId, month, year),
-    [`dashboard-${userId}-${month}-${year}`], // Chave única do Cache (Key)
+  const getCachedData = unstable_cache(
+    fetchData,
+    [`dashboard-data-${userId}-${month}-${year}`],
     {
-      tags: [`dashboard:${userId}`], // TAG para invalidar tudo desse usuário de uma vez
-      revalidate: 3600 // Revalidar automaticamente a cada 1 hora (opcional)
+      tags: [`dashboard:${userId}`],
+      revalidate: 3600
     }
-  )();
-};
+  );
+
+  return getCachedData();
+}

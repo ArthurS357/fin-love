@@ -2,7 +2,8 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getUserId } from '@/lib/auth';
 import { getDashboardData } from '@/lib/data';
-import { getCreditCardsAction, checkRecurringTransactionsAction } from '../actions';
+// ADICIONADO: getFinancialSummaryAction para buscar o total das faturas
+import { getCreditCardsAction, checkRecurringTransactionsAction, getFinancialSummaryAction } from '../actions';
 import Dashboard from '@/components/Dashboard';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -24,10 +25,12 @@ export default async function DashboardPage(props: PageProps) {
   // 2. Executar verificações automáticas (Recorrência/Faturas)
   await checkRecurringTransactionsAction();
 
-  // 3. Buscar Dados Otimizados em Paralelo (Dashboard + Cartões)
-  const [data, rawCreditCards] = await Promise.all([
+  // 3. Buscar Dados Otimizados em Paralelo (Dashboard + Cartões + Resumo Financeiro)
+  // ADICIONADO: getFinancialSummaryAction() na lista de promessas
+  const [data, rawCreditCards, financialSummary] = await Promise.all([
     getDashboardData(userId, monthParam, yearParam),
-    getCreditCardsAction()
+    getCreditCardsAction(),
+    getFinancialSummaryAction()
   ]);
 
   // Se não houver dados (ex: banco resetado mas cookie ativo), 
@@ -37,6 +40,9 @@ export default async function DashboardPage(props: PageProps) {
   }
 
   const { transactions, accumulatedBalance, totalSavings, user } = data;
+
+  // Extrai o totalCreditOpen do resumo financeiro (ou 0 se falhar/nulo)
+  const totalCreditOpen = financialSummary?.totalCreditOpen || 0;
 
   // 4. Serializar Transações para o Cliente (Decimal -> Number)
   const serializedTransactions = transactions.map(t => ({
@@ -95,6 +101,7 @@ export default async function DashboardPage(props: PageProps) {
         accumulatedBalance={accumulatedBalance}
         selectedDate={{ month: monthParam, year: yearParam }}
         creditCards={serializedCreditCards} // <--- Usando a lista serializada
+        totalCreditOpen={totalCreditOpen}   // <--- NOVA PROP: Passando o valor para o Dashboard
       />
     </Suspense>
   );

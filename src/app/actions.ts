@@ -254,7 +254,7 @@ export async function addTransaction(formData: FormData) {
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
       nextRun.setUTCHours(12, 0, 0, 0); // Segurança na recorrência também
-      
+
       if (recurringDay) {
         nextRun = setDate(nextRun, recurringDay);
       }
@@ -275,7 +275,7 @@ export async function addTransaction(formData: FormData) {
     await checkBadgesAction()
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
-    
+
     return { success: true }
   } catch (error) {
     console.error(error);
@@ -316,7 +316,7 @@ export async function updateTransaction(formData: FormData) {
       category,
       date: finalDate, // Usa a data corrigida
       creditCardId: creditCardId || null,
-      isPaid: isPaid 
+      isPaid: isPaid
     },
   })
 
@@ -330,9 +330,9 @@ export async function deleteTransaction(id: string) {
   if (!userId) return { error: 'Auth error' }
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
-  
+
   await prisma.transaction.delete({ where: { id } })
-  
+
   revalidateTag(`dashboard:${userId}`, 'default');
   revalidatePath('/dashboard')
   return { success: true }
@@ -345,7 +345,7 @@ export async function deleteInstallmentGroupAction(installmentId: string) {
     await prisma.transaction.deleteMany({
       where: { installmentId: installmentId, userId: userId }
     });
-    
+
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Todas as parcelas foram removidas.' };
@@ -378,6 +378,7 @@ export async function getFinancialSummaryAction() {
   const userIds = [userId];
   if (user?.partnerId) userIds.push(user.partnerId);
 
+  // 1. Resumo Geral (Saldo Acumulado)
   const summary = await prisma.transaction.groupBy({
     by: ['type'],
     where: { userId: { in: userIds } },
@@ -389,10 +390,24 @@ export async function getFinancialSummaryAction() {
   const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
-  return { accumulatedBalance };
+  // 2. NOVO: Soma das Faturas em Aberto (Cartão de Crédito)
+  // Soma tudo que é Despesa, no Crédito e ainda não foi pago (isPaid: false)
+  const creditSummary = await prisma.transaction.aggregate({
+    where: {
+      userId: { in: userIds },
+      type: 'EXPENSE',
+      paymentMethod: 'CREDIT',
+      isPaid: false
+    },
+    _sum: { amount: true }
+  });
+
+  const totalCreditOpen = Number(creditSummary._sum.amount || 0);
+
+  return { accumulatedBalance, totalCreditOpen };
 }
 
-// --- NOVO: COMPARATIVO MENSAL (MELHORIA 2) ---
+// --- COMPARATIVO MENSAL (MELHORIA 2) ---
 export async function getMonthlyComparisonAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { success: false, data: null };
@@ -446,7 +461,7 @@ export async function getMonthlyComparisonAction(month: number, year: number) {
   }
 }
 
-// --- CORREÇÃO: EXPORTAR CSV (COM DADOS DO CASAL + SEGURANÇA) ---
+// --- EXPORTAR CSV (COM DADOS DO CASAL + SEGURANÇA) ---
 export async function exportTransactionsCsvAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { success: false, error: 'Auth error' };
@@ -1408,4 +1423,66 @@ export async function deleteCreditCardAction(id: string) {
   await prisma.creditCard.delete({ where: { id, userId } });
   revalidatePath('/dashboard');
   return { success: true };
+}
+
+// ==========================================
+// 15. PAGAMENTO DE FATURA (CORRIGIDO)
+// ==========================================
+
+export async function payCreditCardBillAction(cardId: string, month: number, year: number) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  // Datas da fatura
+  const start = startOfMonth(new Date(year, month, 1));
+  const end = endOfMonth(new Date(year, month, 1));
+
+  try {
+    // 1. Atualiza todas as transações desse cartão nesse mês para PAGO
+    await prisma.transaction.updateMany({
+      where: {
+        userId,
+        creditCardId: cardId,
+        date: { gte: start, lte: end },
+        isPaid: false
+      },
+      data: { isPaid: true }
+    });
+
+    // 2. Busca o valor total da fatura para lançar a saída no débito
+    const totalInvoice = await prisma.transaction.aggregate({
+      where: {
+        userId,
+        creditCardId: cardId,
+        date: { gte: start, lte: end },
+        type: 'EXPENSE'
+      },
+      _sum: { amount: true }
+    });
+
+    // CORREÇÃO AQUI: Converter Decimal para Number antes de comparar
+    const totalValue = Number(totalInvoice._sum.amount || 0);
+
+    if (totalValue > 0) {
+      await prisma.transaction.create({
+        data: {
+          userId,
+          description: `Pagamento Fatura Cartão`,
+          amount: totalValue,
+          type: 'EXPENSE',
+          category: 'Fatura',
+          date: new Date(),
+          paymentMethod: 'DEBIT', // Sai da conta agora
+          isPaid: true
+        }
+      });
+    }
+
+    revalidateTag(`dashboard:${userId}`, 'default');
+    revalidatePath('/dashboard');
+    return { success: true, message: 'Fatura paga com sucesso!' };
+  } catch (error) {
+    console.error(error);
+    return { error: 'Erro ao processar pagamento da fatura.' };
+  }
 }

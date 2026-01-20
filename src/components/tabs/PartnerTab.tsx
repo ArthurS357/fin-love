@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Heart, Link as LinkIcon, UserCheck, PiggyBank, PlusCircle,
+  Heart, Link as LinkIcon, PiggyBank, PlusCircle,
   Edit3, X, Check, Send, Zap, BellRing, TrendingUp, MessageCircle
 } from 'lucide-react';
 import {
@@ -12,7 +12,6 @@ import {
 } from '@/app/actions';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
-import { Skeleton } from '@/components/ui/skeleton';
 
 interface PartnerTabProps {
   partner?: { name: string | null; email: string } | null;
@@ -46,7 +45,7 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
     if (partner) fetchMessages();
   }, [partner]);
 
-  // Scroll automático
+  // Scroll automático para o final (mensagens mais recentes)
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -111,7 +110,7 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
   };
 
   const handleSendMessage = async (category: 'LOVE' | 'FINANCE' | 'ALERT', text: string) => {
-    // Optimistic UI update
+    // Atualização otimista (adiciona ao final da lista)
     const tempMsg = {
       id: Math.random().toString(),
       message: text,
@@ -119,13 +118,12 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
       senderId: 'me', // placeholder visual
       createdAt: new Date()
     };
-    // Adiciona ao final da lista (se estiver exibindo em ordem cronológica)
-    // Se a API retorna do mais novo para o mais antigo, ajuste conforme necessário
-    setMessages(prev => [tempMsg, ...prev]);
+
+    setMessages(prev => [...prev, tempMsg]);
 
     const res = await sendPartnerMessageAction(category, text);
     if (!res.success) toast.error("Erro ao enviar.");
-    else fetchMessages(); // Atualiza real
+    else fetchMessages(); // Atualiza com dados reais do servidor
   };
 
   // Se NÃO conectado
@@ -276,7 +274,8 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
           </div>
 
           {/* Área de Mensagens (Timeline) */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar flex flex-col-reverse" ref={scrollRef}>
+          {/* CORRIGIDO: Removido flex-col-reverse para manter a ordem cronológica correta (Antigo -> Novo) */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar flex flex-col" ref={scrollRef}>
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-60">
                 <BellRing size={32} className="mb-2 text-purple-400" />

@@ -1687,3 +1687,105 @@ export async function createBulkTransactionsAction(transactions: any[]) {
     return { success: false, error: 'Erro ao importar dados.' };
   }
 }
+
+// ==========================================
+// NOVAS FUNÇÕES: FUNCIONALIDADES EXTRAS
+// ==========================================
+
+// 1. GESTOR DE ASSINATURAS (Busca recorrentes)
+export async function getSubscriptionsAction() {
+  const userId = await getUserId();
+  if (!userId) return [];
+
+  // Busca transações recorrentes ativas
+  return await prisma.recurringTransaction.findMany({
+    where: { userId, active: true },
+    orderBy: { amount: 'desc' }
+  });
+}
+
+// 2. TIMELINE DE PARCELAS (Projeção de Gastos Futuros)
+export async function getFinancialProjectionAction() {
+  const userId = await getUserId();
+  if (!userId) return [];
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+  const userIds = [userId];
+  if (user?.partnerId) userIds.push(user.partnerId);
+
+  const start = new Date();
+  const end = addMonths(start, 12); // Próximos 12 meses
+
+  // Agrupa gastos por mês
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: { in: userIds },
+      date: { gte: start, lte: end },
+      type: 'EXPENSE'
+    },
+    select: { date: true, amount: true, installments: true, description: true }
+  });
+
+  const projection: Record<string, number> = {};
+
+  transactions.forEach(t => {
+    const key = format(t.date, 'MM/yyyy');
+    projection[key] = (projection[key] || 0) + Number(t.amount);
+  });
+
+  return Object.entries(projection)
+    .map(([date, amount]) => ({ date, amount }))
+    .sort((a, b) => {
+      const [ma, ya] = a.date.split('/').map(Number);
+      const [mb, yb] = b.date.split('/').map(Number);
+      return new Date(ya, ma - 1).getTime() - new Date(yb, mb - 1).getTime();
+    });
+}
+
+// 3. CHAT DE TRANSAÇÕES (Gambiarra Inteligente: Usa PartnerMessage com prefixo)
+export async function getTransactionChatAction(transactionId: string) {
+  const userId = await getUserId();
+  if (!userId) return [];
+
+  const tag = `[TRX:${transactionId}]`;
+
+  const messages = await prisma.partnerMessage.findMany({
+    where: {
+      OR: [
+        { senderId: userId, message: { contains: tag } },
+        { receiverId: userId, message: { contains: tag } }
+      ]
+    },
+    orderBy: { createdAt: 'asc' },
+    include: { sender: { select: { name: true } } }
+  });
+
+  // Remove a tag visualmente
+  return messages.map(m => ({
+    ...m,
+    message: m.message.replace(tag, '').trim()
+  }));
+}
+
+export async function sendTransactionMessageAction(transactionId: string, text: string) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+  if (!user?.partnerId) return { error: 'Sem parceiro.' };
+
+  const tag = `[TRX:${transactionId}]`;
+  const finalMessage = `${tag} ${text}`;
+
+  await prisma.partnerMessage.create({
+    data: {
+      senderId: userId,
+      receiverId: user.partnerId,
+      category: 'FINANCE',
+      message: finalMessage
+    }
+  });
+
+  revalidateTag(`dashboard:${userId}`, 'default');
+  return { success: true };
+}

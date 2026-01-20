@@ -3,9 +3,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Target, Save, Lightbulb,
-  TrendingUp, Plus, Briefcase, Building, Bitcoin, Landmark, Wallet, EyeOff, Trash2, Loader2, PieChart as PieIcon, RefreshCw, ArrowDownLeft
+  TrendingUp, Plus, Briefcase, Building, Bitcoin, Landmark, Wallet, EyeOff, Trash2, Loader2, PieChart as PieIcon, RefreshCw, ArrowDownLeft, Layers
 } from 'lucide-react';
-import { updateSpendingLimitAction, getInvestmentsAction, deleteInvestmentAction, redeemInvestmentAction } from '@/app/actions';
+import { updateSpendingLimitAction, getInvestmentsAction, deleteInvestmentAction, redeemInvestmentAction, getMonthlyBudgetAction, saveMonthlyBudgetAction } from '@/app/actions';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
@@ -32,14 +32,21 @@ const MOTIVATIONAL_TIPS = [
   "💡 Mantenha sua reserva de emergência em liquidez diária."
 ];
 
-export default function GoalsTab({ income, expense, currentLimit, privacyMode }: GoalsTabProps) {
+export default function GoalsTab({ income, expense, transactions, currentLimit, privacyMode }: GoalsTabProps) {
   // --- ESTADOS ---
+  const [activeView, setActiveView] = useState<'ASSETS' | 'BUDGET'>('ASSETS');
+
+  // Estado Geral
   const [limit, setLimit] = useState(currentLimit);
   const [loadingLimit, setLoadingLimit] = useState(false);
 
+  // Estado Investimentos
   const [investments, setInvestments] = useState<{ myInvestments: any[], partnerInvestments: any[] }>({ myInvestments: [], partnerInvestments: [] });
   const [isInvestModalOpen, setIsInvestModalOpen] = useState(false);
   const [loadingInvest, setLoadingInvest] = useState(true);
+
+  // Estado Orçamento (Categorias)
+  const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
 
   // Estados para Resgate e Exclusão
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -47,18 +54,26 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
   const [selectedInvestment, setSelectedInvestment] = useState<any>(null);
 
   // --- CARREGAMENTO DE DADOS ---
-  const fetchInvestments = async () => {
-    // setLoadingInvest(true); // Opcional: descomente se quiser loading total a cada update
-    const res = await getInvestmentsAction();
-    setInvestments(res);
+  const fetchData = async () => {
+    // Carrega Investimentos e Limites de Categoria em paralelo
+    const now = new Date();
+    const [invData, budgetData] = await Promise.all([
+      getInvestmentsAction(),
+      getMonthlyBudgetAction(now.getMonth(), now.getFullYear())
+    ]);
+
+    setInvestments(invData);
+    if (budgetData && 'categoryLimits' in budgetData) {
+      setCategoryLimits((budgetData as any).categoryLimits || {});
+    }
     setLoadingInvest(false);
   };
 
   useEffect(() => {
-    fetchInvestments();
+    fetchData();
   }, []);
 
-  // --- CÁLCULOS ---
+  // --- CÁLCULOS GERAIS ---
   const percentage = limit > 0 ? (expense / limit) * 100 : 0;
   const isOverLimit = expense > limit;
 
@@ -66,11 +81,11 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
     return MOTIVATIONAL_TIPS[new Date().getHours() % MOTIVATIONAL_TIPS.length];
   }, []);
 
+  // --- CÁLCULOS INVESTIMENTOS ---
   const myTotal = investments.myInvestments.reduce((acc, i) => acc + Number(i.currentAmount), 0);
   const partnerTotal = investments.partnerInvestments.reduce((acc, i) => acc + Number(i.currentAmount), 0);
   const grandTotal = myTotal + partnerTotal;
 
-  // Prepara dados para o gráfico (agrupa por categoria)
   const allocationData = useMemo(() => {
     const all = [...investments.myInvestments, ...investments.partnerInvestments];
     const categories: any = {};
@@ -83,6 +98,38 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
     })).sort((a, b) => b.value - a.value);
   }, [investments]);
 
+  // --- CÁLCULOS ORÇAMENTO POR CATEGORIA ---
+  const categoryStatus = useMemo(() => {
+    const status: any[] = [];
+    const expensesByCategory: Record<string, number> = {};
+
+    // Agrupa gastos reais das transações
+    transactions
+      .filter(t => t.type === 'EXPENSE')
+      .forEach(t => {
+        expensesByCategory[t.category] = (expensesByCategory[t.category] || 0) + Number(t.amount);
+      });
+
+    // Mescla com os limites definidos
+    const allCategories = Array.from(new Set([...Object.keys(expensesByCategory), ...Object.keys(categoryLimits)]));
+
+    allCategories.forEach(cat => {
+      const spent = expensesByCategory[cat] || 0;
+      const catLimit = categoryLimits[cat] || 0;
+      if (spent > 0 || catLimit > 0) {
+        status.push({
+          category: cat,
+          spent,
+          limit: catLimit,
+          percent: catLimit > 0 ? (spent / catLimit) * 100 : 0
+        });
+      }
+    });
+
+    // Ordena: Quem estourou primeiro, depois por % de uso
+    return status.sort((a, b) => b.percent - a.percent);
+  }, [transactions, categoryLimits]);
+
   // --- AÇÕES ---
   const handleSaveLimit = async () => {
     setLoadingLimit(true);
@@ -94,6 +141,23 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
     setLoadingLimit(false);
   };
 
+  const handleSaveCategoryLimit = async (category: string, val: string) => {
+    const newLimits = { ...categoryLimits, [category]: Number(val) };
+    setCategoryLimits(newLimits);
+
+    const now = new Date();
+    // Busca o budget atual para não perder outros dados (ex: parcelas manuais se houver)
+    const currentBudget = await getMonthlyBudgetAction(now.getMonth(), now.getFullYear());
+
+    // Salva com os novos limites
+    await saveMonthlyBudgetAction(now.getMonth(), now.getFullYear(), {
+      ...currentBudget,
+      categoryLimits: newLimits // Adiciona este campo ao objeto salvo
+    } as any);
+
+    toast.success(`Limite de ${category} salvo!`);
+  };
+
   const handleDeleteInvestment = async (id: string, name: string) => {
     if (!confirm(`Tem certeza que deseja excluir o ativo "${name}"?`)) return;
 
@@ -102,7 +166,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
 
     if (res.success) {
       toast.success(res.message);
-      await fetchInvestments(); // Recarrega a lista
+      await fetchData();
     } else {
       toast.error(res.error);
     }
@@ -130,16 +194,14 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24 md:pb-0">
 
-      {/* --- SEÇÃO 1: TETO DE GASTOS & DICA --- */}
+      {/* --- SEÇÃO 1: TETO DE GASTOS GLOBAL & DICA --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* Card Teto de Gastos */}
         <div className="lg:col-span-2 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 bg-pink-500/10 w-64 h-64 rounded-full blur-[80px] pointer-events-none group-hover:bg-pink-500/20 transition duration-1000" />
 
           <div className="relative z-10">
             <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-6">
-              <Target className="text-pink-500" /> Controle de Orçamento
+              <Target className="text-pink-500" /> Teto de Gastos Global
             </h3>
 
             <div className="flex gap-4 mb-6 items-center">
@@ -163,7 +225,6 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
               </button>
             </div>
 
-            {/* Barra de Progresso */}
             <div className="bg-[#130b20] p-5 rounded-2xl border border-white/5">
               <div className="flex justify-between text-sm mb-3">
                 <span className="text-gray-400 font-medium">Gasto Realizado: <span className="text-white">{maskValue(expense)}</span></span>
@@ -192,204 +253,279 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
 
       <div className="w-full h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-      {/* --- SEÇÃO 2: PATRIMÔNIO (INVESTIMENTOS) --- */}
-      <div>
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Briefcase className="text-emerald-400" /> Patrimônio & Investimentos
-            </h2>
-            <p className="text-gray-400 text-sm mt-1">Gerencie seus ativos, ações e reservas.</p>
-          </div>
+      {/* --- MENU DE NAVEGAÇÃO INTERNO --- */}
+      <div className="flex justify-center mb-4">
+        <div className="flex bg-[#130b20] p-1 rounded-xl border border-white/10 shadow-lg">
           <button
-            onClick={() => setIsInvestModalOpen(true)}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-xl text-sm font-bold transition shadow-lg shadow-emerald-900/20 active:scale-95 group"
+            onClick={() => setActiveView('ASSETS')}
+            className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeView === 'ASSETS' ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
           >
-            <Plus size={18} className="group-hover:rotate-90 transition-transform" />
-            Novo Aporte
+            <Briefcase size={16} /> Patrimônio & Sonhos
+          </button>
+          <button
+            onClick={() => setActiveView('BUDGET')}
+            className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeView === 'BUDGET' ? 'bg-gradient-to-r from-pink-600 to-pink-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+          >
+            <Layers size={16} /> Orçamento Detalhado
           </button>
         </div>
+      </div>
 
-        {loadingInvest ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <Skeleton className="h-48 rounded-3xl bg-white/5 border border-white/5" />
-            <Skeleton className="h-48 md:col-span-2 rounded-3xl bg-white/5 border border-white/5" />
+      {/* === CONTEÚDO DINÂMICO === */}
+      {activeView === 'ASSETS' ? (
+        <div className="animate-in fade-in slide-in-from-left duration-300">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <Briefcase className="text-emerald-400" /> Meus Investimentos & Sonhos
+              </h2>
+              <p className="text-gray-400 text-sm mt-1">Gerencie seus ativos, ações e reservas para o futuro.</p>
+            </div>
+            <button
+              onClick={() => setIsInvestModalOpen(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-xl text-sm font-bold transition shadow-lg shadow-emerald-900/20 active:scale-95 group"
+            >
+              <Plus size={18} className="group-hover:rotate-90 transition-transform" />
+              Novo Aporte
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
 
-            {/* 1. Card Valor Total */}
-            <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 flex flex-col justify-center relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-500">
-              <div className="absolute -right-12 -bottom-12 text-emerald-500/5 group-hover:text-emerald-500/10 transition-colors duration-500">
-                <Briefcase size={180} />
-              </div>
-
-              <div className="flex justify-between items-start z-10">
-                <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Patrimônio Total</p>
-                {privacyMode && <EyeOff size={16} className="text-gray-500" />}
-              </div>
-
-              <h3 className="text-4xl font-bold text-white mb-6 z-10 tracking-tight">
-                {maskValue(grandTotal)}
-              </h3>
-
-              {/* Barras de Progresso Casal */}
-              <div className="space-y-3 z-10">
-                <div>
-                  <div className="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Você</span>
-                    <span className="text-white font-medium">{maskValue(myTotal)}</span>
+          {loadingInvest ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Skeleton className="h-48 rounded-3xl bg-white/5 border border-white/5" />
+              <Skeleton className="h-48 md:col-span-2 rounded-3xl bg-white/5 border border-white/5" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {/* Card Valor Total */}
+              <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 flex flex-col justify-center relative overflow-hidden group hover:border-emerald-500/30 transition-all duration-500">
+                <div className="absolute -right-12 -bottom-12 text-emerald-500/5 group-hover:text-emerald-500/10 transition-colors duration-500">
+                  <Briefcase size={180} />
+                </div>
+                <div className="flex justify-between items-start z-10">
+                  <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Patrimônio Total</p>
+                  {privacyMode && <EyeOff size={16} className="text-gray-500" />}
+                </div>
+                <h3 className="text-4xl font-bold text-white mb-6 z-10 tracking-tight">
+                  {maskValue(grandTotal)}
+                </h3>
+                <div className="space-y-3 z-10">
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Você</span>
+                      <span className="text-white font-medium">{maskValue(myTotal)}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-500" style={{ width: `${grandTotal > 0 ? (myTotal / grandTotal) * 100 : 0}%` }} />
+                    </div>
                   </div>
-                  <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-500" style={{ width: `${grandTotal > 0 ? (myTotal / grandTotal) * 100 : 0}%` }} />
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Parceiro(a)</span>
+                      <span className="text-white font-medium">{maskValue(partnerTotal)}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-pink-500" style={{ width: `${grandTotal > 0 ? (partnerTotal / grandTotal) * 100 : 0}%` }} />
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div>
-                  <div className="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Parceiro(a)</span>
-                    <span className="text-white font-medium">{maskValue(partnerTotal)}</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-pink-500" style={{ width: `${grandTotal > 0 ? (partnerTotal / grandTotal) * 100 : 0}%` }} />
-                  </div>
+              {/* Gráfico de Alocação */}
+              <div className="md:col-span-2 bg-[#1f1630] p-6 rounded-3xl border border-white/5 flex items-center relative overflow-hidden">
+                <div className="absolute top-4 left-6 z-10">
+                  <h4 className="text-sm text-gray-300 font-bold flex items-center gap-2">
+                    <PieIcon size={14} className="text-purple-400" /> Diversificação
+                  </h4>
+                </div>
+                <div className="w-full h-48 flex items-center justify-center">
+                  {allocationData.length > 0 ? (
+                    <div className="flex items-center w-full max-w-lg justify-between">
+                      <div className="w-48 h-48 relative">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={allocationData}
+                              cx="50%" cy="50%"
+                              innerRadius={50} outerRadius={70}
+                              paddingAngle={4}
+                              dataKey="value"
+                              stroke="none"
+                            >
+                              {allocationData.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              contentStyle={{ backgroundColor: '#1a1025', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
+                              itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                              formatter={(value: any) => privacyMode ? '••••••' : formatCurrency(Number(value))}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="text-center opacity-50">
+                            <span className="text-[10px] text-gray-400 block uppercase">Ativos</span>
+                            <span className="text-lg font-bold text-white">{investments.myInvestments.length + investments.partnerInvestments.length}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex-1 ml-8 space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2">
+                        {allocationData.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs group cursor-default">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                              <span className="text-gray-300 group-hover:text-white transition">{d.name}</span>
+                            </div>
+                            {!privacyMode && (
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500">{formatCurrency(d.value)}</span>
+                                <span className="font-bold text-gray-400 w-8 text-right">({((d.value / grandTotal) * 100).toFixed(0)}%)</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500">
+                      <PieIcon size={32} className="mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">Nenhum investimento registrado.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+          )}
 
-            {/* 2. Gráfico de Alocação */}
-            <div className="md:col-span-2 bg-[#1f1630] p-6 rounded-3xl border border-white/5 flex items-center relative overflow-hidden">
-              <div className="absolute top-4 left-6 z-10">
-                <h4 className="text-sm text-gray-300 font-bold flex items-center gap-2">
-                  <PieIcon size={14} className="text-purple-400" /> Diversificação
-                </h4>
-              </div>
-
-              <div className="w-full h-48 flex items-center justify-center">
-                {allocationData.length > 0 ? (
-                  <div className="flex items-center w-full max-w-lg justify-between">
-                    <div className="w-48 h-48 relative">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={allocationData}
-                            cx="50%" cy="50%"
-                            innerRadius={50} outerRadius={70}
-                            paddingAngle={4}
-                            dataKey="value"
-                            stroke="none"
-                          >
-                            {allocationData.map((_, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={{ backgroundColor: '#1a1025', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
-                            itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
-                            formatter={(value: any) => privacyMode ? '••••••' : formatCurrency(Number(value))}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      {/* Centro da Donut */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-center opacity-50">
-                          <span className="text-[10px] text-gray-400 block uppercase">Ativos</span>
-                          <span className="text-lg font-bold text-white">{investments.myInvestments.length + investments.partnerInvestments.length}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Legenda Lateral */}
-                    <div className="flex-1 ml-8 space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2">
-                      {allocationData.map((d, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs group cursor-default">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                            <span className="text-gray-300 group-hover:text-white transition">{d.name}</span>
-                          </div>
-                          {!privacyMode && (
-                            <div className="flex items-center gap-3">
-                              <span className="text-gray-500">{formatCurrency(d.value)}</span>
-                              <span className="font-bold text-gray-400 w-8 text-right">({((d.value / grandTotal) * 100).toFixed(0)}%)</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+          {/* LISTAS DE ATIVOS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-[#1f1630]/50 rounded-3xl p-5 border border-white/5 flex flex-col h-full">
+              <h4 className="text-purple-400 font-bold text-sm mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <span className="w-2 h-2 bg-purple-500 rounded-full shadow-[0_0_10px_#a855f7]" /> Meus Ativos
+              </h4>
+              <div className="space-y-3 flex-1">
+                {loadingInvest ? (
+                  <SkeletonGroup>
+                    <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
+                    <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
+                  </SkeletonGroup>
+                ) : investments.myInvestments.length === 0 ? (
+                  <EmptyState />
                 ) : (
-                  <div className="text-center text-gray-500">
-                    <PieIcon size={32} className="mx-auto mb-2 opacity-20" />
-                    <p className="text-sm">Nenhum investimento registrado.</p>
-                  </div>
+                  investments.myInvestments.map((inv: any) => (
+                    <InvestmentCard
+                      key={inv.id}
+                      inv={inv}
+                      styles={getCategoryStyles(inv.category)}
+                      privacyMode={privacyMode}
+                      onDelete={() => handleDeleteInvestment(inv.id, inv.name)}
+                      isDeleting={deletingId === inv.id}
+                      onRedeem={() => openRedeemModal(inv)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-[#1f1630]/50 rounded-3xl p-5 border border-white/5 flex flex-col h-full">
+              <h4 className="text-pink-400 font-bold text-sm mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <span className="w-2 h-2 bg-pink-500 rounded-full shadow-[0_0_10px_#ec4899]" /> Carteira do Parceiro
+              </h4>
+              <div className="space-y-3 flex-1">
+                {loadingInvest ? (
+                  <SkeletonGroup>
+                    <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
+                    <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
+                  </SkeletonGroup>
+                ) : investments.partnerInvestments.length === 0 ? (
+                  <EmptyState partner />
+                ) : (
+                  investments.partnerInvestments.map((inv: any) => (
+                    <InvestmentCard
+                      key={inv.id}
+                      inv={inv}
+                      styles={getCategoryStyles(inv.category)}
+                      privacyMode={privacyMode}
+                    />
+                  ))
                 )}
               </div>
             </div>
           </div>
-        )}
-
-        {/* LISTAS DE ATIVOS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-          {/* Coluna: MEUS ATIVOS */}
-          <div className="bg-[#1f1630]/50 rounded-3xl p-5 border border-white/5 flex flex-col h-full">
-            <h4 className="text-purple-400 font-bold text-sm mb-4 flex items-center gap-2 uppercase tracking-wider">
-              <span className="w-2 h-2 bg-purple-500 rounded-full shadow-[0_0_10px_#a855f7]" /> Meus Ativos
-            </h4>
-
-            <div className="space-y-3 flex-1">
-              {loadingInvest ? (
-                <SkeletonGroup>
-                  <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
-                  <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
-                </SkeletonGroup>
-              ) : investments.myInvestments.length === 0 ? (
-                <EmptyState />
-              ) : (
-                investments.myInvestments.map((inv: any) => (
-                  <InvestmentCard
-                    key={inv.id}
-                    inv={inv}
-                    styles={getCategoryStyles(inv.category)}
-                    privacyMode={privacyMode}
-                    onDelete={() => handleDeleteInvestment(inv.id, inv.name)}
-                    isDeleting={deletingId === inv.id}
-                    onRedeem={() => openRedeemModal(inv)} // Habilita o resgate
-                  />
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Coluna: PARCEIRO */}
-          <div className="bg-[#1f1630]/50 rounded-3xl p-5 border border-white/5 flex flex-col h-full">
-            <h4 className="text-pink-400 font-bold text-sm mb-4 flex items-center gap-2 uppercase tracking-wider">
-              <span className="w-2 h-2 bg-pink-500 rounded-full shadow-[0_0_10px_#ec4899]" /> Carteira do Parceiro
-            </h4>
-
-            <div className="space-y-3 flex-1">
-              {loadingInvest ? (
-                <SkeletonGroup>
-                  <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
-                  <Skeleton className="h-20 w-full rounded-2xl bg-white/5" />
-                </SkeletonGroup>
-              ) : investments.partnerInvestments.length === 0 ? (
-                <EmptyState partner />
-              ) : (
-                investments.partnerInvestments.map((inv: any) => (
-                  <InvestmentCard
-                    key={inv.id}
-                    inv={inv}
-                    styles={getCategoryStyles(inv.category)}
-                    privacyMode={privacyMode}
-                  // Sem ações para o parceiro
-                  />
-                ))
-              )}
-            </div>
-          </div>
         </div>
-      </div>
+      ) : (
+        // === VIEW: ORÇAMENTO POR CATEGORIA ===
+        <div className="animate-in fade-in slide-in-from-right duration-300 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <Layers className="text-pink-400" /> Orçamento Detalhado
+              </h2>
+              <p className="text-gray-400 text-sm mt-1">Defina limites específicos para cada categoria de gasto.</p>
+            </div>
+          </div>
+
+          {categoryStatus.length === 0 ? (
+            <div className="bg-[#1f1630] border border-dashed border-white/10 rounded-3xl p-10 text-center">
+              <p className="text-gray-400 mb-2">Nenhuma despesa ou limite definido ainda.</p>
+              <p className="text-xs text-gray-500">Comece a registrar gastos ou defina limites para vê-los aqui.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {categoryStatus.map((item, idx) => (
+                <div key={idx} className={`bg-[#1f1630] p-5 rounded-2xl border transition-all hover:border-white/10 ${item.spent > item.limit && item.limit > 0 ? 'border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]' : 'border-white/5'}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-lg font-bold text-gray-300">
+                        {item.category.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="text-sm font-bold text-white block">{item.category}</span>
+                        <span className={`text-xs ${item.spent > item.limit && item.limit > 0 ? 'text-red-400 font-bold' : 'text-gray-400'}`}>
+                          Gasto: {formatCurrency(item.spent)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <label className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Limite Mensal</label>
+                      <div className="relative group">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs font-bold">R$</span>
+                        <input
+                          type="number"
+                          defaultValue={item.limit}
+                          onBlur={(e) => handleSaveCategoryLimit(item.category, e.target.value)}
+                          className="bg-[#130b20] text-white text-sm font-bold w-24 text-right rounded-lg py-1.5 px-2 border border-white/10 focus:border-pink-500 outline-none transition-colors"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Barra de Progresso */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-gray-500">Progresso</span>
+                      <span className={item.percent > 100 ? 'text-red-400 font-bold' : 'text-gray-400'}>{item.percent.toFixed(0)}%</span>
+                    </div>
+                    <div className="relative h-2.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div
+                        className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ${item.spent > item.limit && item.limit > 0 ? 'bg-red-500' : 'bg-gradient-to-r from-pink-600 to-purple-600'}`}
+                        style={{ width: `${Math.min(item.percent, 100)}%` }}
+                      />
+                    </div>
+                    {item.spent > item.limit && item.limit > 0 && (
+                      <p className="text-[10px] text-red-400 text-right font-bold mt-1">
+                        Excedeu {formatCurrency(item.spent - item.limit)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* --- SEÇÃO 3: FERRAMENTAS EXTRAS --- */}
       <div className="mt-12 pt-8 border-t border-white/5">
@@ -403,7 +539,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
       <InvestmentModal
         isOpen={isInvestModalOpen}
         onClose={() => setIsInvestModalOpen(false)}
-        onSuccess={fetchInvestments}
+        onSuccess={fetchData}
       />
 
       {/* Modal de Resgate */}
@@ -412,7 +548,7 @@ export default function GoalsTab({ income, expense, currentLimit, privacyMode }:
           isOpen={redeemModalOpen}
           onClose={() => setRedeemModalOpen(false)}
           investment={selectedInvestment}
-          onSuccess={fetchInvestments}
+          onSuccess={fetchData}
         />
       )}
     </div>

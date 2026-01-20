@@ -5,17 +5,17 @@ import {
   ArrowUpCircle, ArrowDownCircle, Search,
   Trash2, Edit2, Download, Filter,
   CreditCard, Wallet, PiggyBank, Heart, User, Users,
-  ArrowUpDown, Calendar, CheckSquare, Square, X
+  ArrowUpDown, Calendar, CheckSquare, Square, X, MessageCircle
 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { exportTransactionsCsvAction, deleteTransactionsAction } from '@/app/actions';
 import { toast } from 'sonner';
 
-// --- NOVOS COMPONENTES ---
-// (Certifique-se de criar estes componentes na pasta src/components)
+// --- COMPONENTES ---
 import CsvImporter from '../CsvImporter';
 import FinancialCalendar from '../FinancialCalendar';
+import TransactionDetailsModal from '../modals/TransactionDetailsModal'; // Novo Modal
 
 interface Transaction {
   id: string;
@@ -34,7 +34,7 @@ interface Transaction {
 interface HistoryTabProps {
   transactions: Transaction[];
   onEdit: (t: Transaction) => void;
-  onDelete: (id: string) => void; 
+  onDelete: (id: string) => void;
   partnerId?: string;
   partnerName?: string;
   month: number;
@@ -44,7 +44,7 @@ interface HistoryTabProps {
 export default function HistoryTab({
   transactions,
   onEdit,
-  onDelete, 
+  onDelete,
   partnerId,
   partnerName,
   month,
@@ -57,9 +57,10 @@ export default function HistoryTab({
   const [viewMode, setViewMode] = useState<'ME' | 'PARTNER' | 'BOTH'>('BOTH');
   const [exporting, setExporting] = useState(false);
 
-  // --- ESTADO DE SELEÇÃO EM MASSA ---
+  // Estados de Seleção e Modal
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [selectedTxForChat, setSelectedTxForChat] = useState<Transaction | null>(null);
 
   // --- Lógica de Filtragem ---
   const filteredTransactions = useMemo(() => {
@@ -109,7 +110,7 @@ export default function HistoryTab({
     return groups;
   }, [filteredTransactions]);
 
-  // --- FUNÇÕES DE SELEÇÃO ---
+  // --- AÇÕES ---
   const toggleSelect = (id: string) => {
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
@@ -119,7 +120,7 @@ export default function HistoryTab({
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredTransactions.length) {
-      setSelectedIds(new Set()); // Desmarcar tudo
+      setSelectedIds(new Set());
     } else {
       const myIds = filteredTransactions
         .filter(t => !partnerId || t.userId !== partnerId)
@@ -130,12 +131,9 @@ export default function HistoryTab({
 
   const handleBulkDelete = async () => {
     if (!confirm(`Tem certeza que deseja excluir ${selectedIds.size} itens?`)) return;
-    
     setIsBulkDeleting(true);
     const ids = Array.from(selectedIds);
-    
     const res = await deleteTransactionsAction(ids);
-    
     if (res.success) {
       toast.success(res.message);
       setSelectedIds(new Set());
@@ -145,7 +143,6 @@ export default function HistoryTab({
     setIsBulkDeleting(false);
   };
 
-  // --- Helpers UI ---
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -189,7 +186,7 @@ export default function HistoryTab({
 
   return (
     <div className="space-y-6 pb-32">
-      
+
       {/* SELETOR DE MODO (PARCEIRO) */}
       {partnerId && (
         <div className="flex justify-center">
@@ -202,14 +199,13 @@ export default function HistoryTab({
       )}
 
       {/* --- NOVA ÁREA: CALENDÁRIO & IMPORTADOR --- */}
-      {/* Esta grid organiza o Calendário e o Importador lado a lado em telas grandes */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
-         <div className="lg:col-span-2">
-            <FinancialCalendar transactions={transactions} month={month} year={year} />
-         </div>
-         <div>
-            <CsvImporter />
-         </div>
+        <div className="lg:col-span-2">
+          <FinancialCalendar transactions={transactions} month={month} year={year} />
+        </div>
+        <div>
+          <CsvImporter />
+        </div>
       </div>
 
       {/* RESUMO (KPIs) */}
@@ -237,13 +233,13 @@ export default function HistoryTab({
       {/* BARRA DE FILTROS */}
       <div className="bg-[#1f1630] p-4 rounded-2xl border border-white/5 shadow-lg sticky top-24 z-20 backdrop-blur-md bg-opacity-95 flex flex-col gap-3">
         <div className="flex gap-2">
-           <button 
-             onClick={toggleSelectAll} 
-             className="bg-[#130b20] border border-white/10 text-gray-400 p-2.5 rounded-xl hover:text-white transition-colors"
-             title="Selecionar Todos"
-           >
-             {selectedIds.size > 0 && selectedIds.size === filteredTransactions.length ? <CheckSquare size={20} className="text-purple-400" /> : <Square size={20} />}
-           </button>
+          <button
+            onClick={toggleSelectAll}
+            className="bg-[#130b20] border border-white/10 text-gray-400 p-2.5 rounded-xl hover:text-white transition-colors"
+            title="Selecionar Todos"
+          >
+            {selectedIds.size > 0 && selectedIds.size === filteredTransactions.length ? <CheckSquare size={20} className="text-purple-400" /> : <Square size={20} />}
+          </button>
 
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -262,16 +258,16 @@ export default function HistoryTab({
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <div className="relative shrink-0">
-             <select 
-               value={sortBy}
-               onChange={(e) => setSortBy(e.target.value as any)}
-               className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
-             >
-               <option value="DATE">Data</option>
-               <option value="AMOUNT_DESC">Maior Valor</option>
-               <option value="AMOUNT_ASC">Menor Valor</option>
-             </select>
-             <ArrowUpDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
+            >
+              <option value="DATE">Data</option>
+              <option value="AMOUNT_DESC">Maior Valor</option>
+              <option value="AMOUNT_ASC">Menor Valor</option>
+            </select>
+            <ArrowUpDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
           <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />
           {['ALL', 'INCOME', 'EXPENSE', 'INVESTMENT'].map((type) => (
@@ -284,18 +280,18 @@ export default function HistoryTab({
             </button>
           ))}
           <div className="relative shrink-0 ml-1">
-             <select 
-               value={paymentFilter}
-               onChange={(e) => setPaymentFilter(e.target.value)}
-               className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
-             >
-               <option value="ALL">Pagamento: Todos</option>
-               <option value="CREDIT">Crédito</option>
-               <option value="DEBIT">Débito</option>
-               <option value="PIX">Pix</option>
-               <option value="CASH">Dinheiro</option>
-             </select>
-             <Filter size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className="appearance-none bg-[#130b20] text-xs font-bold text-gray-300 border border-white/10 rounded-lg py-2 pl-3 pr-8 focus:outline-none focus:border-purple-500"
+            >
+              <option value="ALL">Pagamento: Todos</option>
+              <option value="CREDIT">Crédito</option>
+              <option value="DEBIT">Débito</option>
+              <option value="PIX">Pix</option>
+              <option value="CASH">Dinheiro</option>
+            </select>
+            <Filter size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
         </div>
       </div>
@@ -304,8 +300,8 @@ export default function HistoryTab({
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
         {Object.keys(groupedTransactions).length === 0 ? (
           <div className="text-center py-12 opacity-50">
-             <Filter className="mx-auto mb-2" size={32} />
-             <p>Nada encontrado com esses filtros.</p>
+            <Filter className="mx-auto mb-2" size={32} />
+            <p>Nada encontrado com esses filtros.</p>
           </div>
         ) : (
           Object.entries(groupedTransactions).map(([dateKey, txs]) => (
@@ -318,17 +314,18 @@ export default function HistoryTab({
                   const isPartner = partnerId && t.userId === partnerId;
                   const ownerName = isPartner ? (partnerName?.split(' ')[0] || 'Parceiro') : 'Você';
                   const isSelected = selectedIds.has(t.id);
-                  
+
                   return (
-                    <div 
-                      key={t.id} 
-                      className={`group bg-[#1f1630] border p-4 rounded-2xl flex items-center justify-between transition-all relative overflow-hidden ${isSelected ? 'border-purple-500 bg-[#2a1e3e]' : 'border-white/5 hover:bg-[#251a3a]'}`}
+                    <div
+                      key={t.id}
+                      onClick={() => !isSelected && !isPartner && setSelectedTxForChat(t)} // Abre Chat ao clicar se não estiver selecionando
+                      className={`group bg-[#1f1630] border p-4 rounded-2xl flex items-center justify-between transition-all relative overflow-hidden cursor-pointer ${isSelected ? 'border-purple-500 bg-[#2a1e3e]' : 'border-white/5 hover:bg-[#251a3a]'}`}
                     >
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${t.type === 'INCOME' ? 'bg-green-500' : t.type === 'EXPENSE' ? 'bg-red-500' : 'bg-purple-500'}`} />
-                      
+
                       <div className="flex items-center gap-4 pl-2">
                         {!isPartner && (
-                          <button onClick={() => toggleSelect(t.id)} className="text-gray-400 hover:text-white transition-colors">
+                          <button onClick={(e) => { e.stopPropagation(); toggleSelect(t.id); }} className="text-gray-400 hover:text-white transition-colors">
                             {isSelected ? <CheckSquare className="text-purple-400" size={20} /> : <Square size={20} />}
                           </button>
                         )}
@@ -343,7 +340,7 @@ export default function HistoryTab({
                             {isPartner && viewMode === 'BOTH' && (
                               <span className="px-1.5 py-0.5 rounded border bg-pink-500/10 border-pink-500/20 text-pink-300 text-[10px]">{ownerName}</span>
                             )}
-                            
+
                             {t.paymentMethod === 'CREDIT' && (
                               <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${t.isPaid ? 'border-green-500/20 text-green-400 bg-green-500/10' : 'border-orange-500/20 text-orange-400 bg-orange-500/10'}`}>
                                 <CreditCard size={10} />
@@ -359,11 +356,12 @@ export default function HistoryTab({
                           {t.type === 'EXPENSE' ? '- ' : '+ '}
                           R$ {Number(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
-                        
+
                         {!isPartner && selectedIds.size === 0 && (
                           <div className="flex gap-2 justify-end mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => onEdit(t)}><Edit2 size={14} className="text-blue-400" /></button>
-                            <button onClick={() => onDelete(t.id)}><Trash2 size={14} className="text-red-400" /></button>
+                            <span className="text-[10px] text-pink-400 flex items-center gap-1"><MessageCircle size={10} /> Chat</span>
+                            <button onClick={(e) => { e.stopPropagation(); onEdit(t); }}><Edit2 size={14} className="text-blue-400" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); onDelete(t.id); }}><Trash2 size={14} className="text-red-400" /></button>
                           </div>
                         )}
                       </div>
@@ -382,20 +380,30 @@ export default function HistoryTab({
           {selectedIds.size} selecionado{selectedIds.size > 1 ? 's' : ''}
         </span>
         <div className="h-4 w-px bg-white/20"></div>
-        <button 
-          onClick={handleBulkDelete} 
+        <button
+          onClick={handleBulkDelete}
           disabled={isBulkDeleting}
           className="flex items-center gap-2 text-red-400 hover:text-red-300 font-bold text-sm transition-colors"
         >
           {isBulkDeleting ? 'Excluindo...' : <><Trash2 size={16} /> Excluir</>}
         </button>
-        <button 
-          onClick={() => setSelectedIds(new Set())} 
+        <button
+          onClick={() => setSelectedIds(new Set())}
           className="bg-white/10 p-1 rounded-full text-gray-400 hover:text-white"
         >
           <X size={14} />
         </button>
       </div>
+
+      {/* MODAL DE DETALHES & CHAT */}
+      {selectedTxForChat && (
+        <TransactionDetailsModal
+          isOpen={!!selectedTxForChat}
+          onClose={() => setSelectedTxForChat(null)}
+          transaction={selectedTxForChat}
+          onDelete={() => { onDelete(selectedTxForChat.id); setSelectedTxForChat(null); }}
+        />
+      )}
     </div>
   );
 }

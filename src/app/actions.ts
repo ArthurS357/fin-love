@@ -368,17 +368,17 @@ export async function toggleTransactionStatus(id: string, currentStatus: boolean
 }
 
 // ==========================================
-// 3. RESUMO E ANÁLISE FINANCEIRA
+// 3. RESUMO E ANÁLISE FINANCEIRA (CORRIGIDO PARA FATURA ATUAL)
 // ==========================================
 
-export async function getFinancialSummaryAction() {
+export async function getFinancialSummaryAction(month?: number, year?: number) {
   const userId = await getUserId();
   if (!userId) return null;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
   const userIds = [userId];
   if (user?.partnerId) userIds.push(user.partnerId);
 
-  // 1. Resumo Geral (Saldo Acumulado)
+  // 1. Resumo Geral (Saldo Acumulado - Considera tudo para o saldo real)
   const summary = await prisma.transaction.groupBy({
     by: ['type'],
     where: { userId: { in: userIds } },
@@ -390,14 +390,22 @@ export async function getFinancialSummaryAction() {
   const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
   const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
-  // 2. NOVO: Soma das Faturas em Aberto (Cartão de Crédito)
-  // Soma tudo que é Despesa, no Crédito e ainda não foi pago (isPaid: false)
+  // 2. CORREÇÃO DA FATURA: Soma apenas o que vence ATÉ O FINAL do mês selecionado
+  // Isso inclui: Atrasados + Fatura do Mês
+  // Isso EXCLUI: Parcelas futuras (mês que vem em diante)
+  let dateFilter = {};
+  if (month !== undefined && year !== undefined) {
+    const end = endOfMonth(new Date(year, month, 1));
+    dateFilter = { date: { lte: end } };
+  }
+
   const creditSummary = await prisma.transaction.aggregate({
     where: {
       userId: { in: userIds },
       type: 'EXPENSE',
       paymentMethod: 'CREDIT',
-      isPaid: false
+      isPaid: false,
+      ...dateFilter // Aplica o filtro de data (Até o fim do mês)
     },
     _sum: { amount: true }
   });
@@ -407,7 +415,7 @@ export async function getFinancialSummaryAction() {
   return { accumulatedBalance, totalCreditOpen };
 }
 
-// --- COMPARATIVO MENSAL (MELHORIA 2) ---
+// --- COMPARATIVO MENSAL ---
 export async function getMonthlyComparisonAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { success: false, data: null };
@@ -461,12 +469,11 @@ export async function getMonthlyComparisonAction(month: number, year: number) {
   }
 }
 
-// --- EXPORTAR CSV (COM DADOS DO CASAL + SEGURANÇA) ---
+// --- EXPORTAR CSV ---
 export async function exportTransactionsCsvAction(month: number, year: number) {
   const userId = await getUserId();
   if (!userId) return { success: false, error: 'Auth error' };
 
-  // 1. Busca o parceiro para incluir no relatório (Consistência)
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { partnerId: true, name: true, partner: { select: { name: true } } }
@@ -481,37 +488,29 @@ export async function exportTransactionsCsvAction(month: number, year: number) {
   try {
     const transactions = await prisma.transaction.findMany({
       where: {
-        userId: { in: userIds }, // Agora busca de ambos!
+        userId: { in: userIds },
         date: { gte: start, lte: end }
       },
       orderBy: { date: 'desc' },
-      include: { user: { select: { name: true } } } // Inclui nome para identificar de quem é
+      include: { user: { select: { name: true } } }
     });
 
-    // 2. Função de Sanitização (Segurança contra CSV Injection)
     const safeString = (str: string) => {
       if (!str) return '';
-      let clean = str.replace(/,/g, ' ').replace(/\n/g, ' '); // Remove vírgulas e quebras
-      // Se começar com caracteres de fórmula, adiciona aspas simples para forçar texto
+      let clean = str.replace(/,/g, ' ').replace(/\n/g, ' ');
       if (/^[=+\-@]/.test(clean)) {
         return `'${clean}`;
       }
       return clean;
     };
 
-    // Cabeçalho CSV
     const header = "Data,Quem,Descrição,Categoria,Tipo,Valor,Status\n";
 
-    // Linhas
     const rows = transactions.map(t => {
       const dateStr = format(t.date, 'dd/MM/yyyy');
-      // Identifica se é do usuário ou do parceiro
       const ownerName = t.userId === userId ? 'Você' : (t.user?.name?.split(' ')[0] || 'Parceiro');
-
       const amountStr = t.amount.toFixed(2).replace('.', ',');
       const status = t.isPaid ? 'Pago' : 'Pendente';
-
-      // Aplica sanitização
       const desc = safeString(t.description);
       const cat = safeString(t.category);
 

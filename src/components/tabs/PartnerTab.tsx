@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Heart, Link as LinkIcon, UserCheck, PiggyBank, PlusCircle,
-  Edit3, X, Check, Send, Zap, BellRing, TrendingUp
+  Edit3, X, Check, Send, Zap, BellRing, TrendingUp, MessageCircle
 } from 'lucide-react';
 import {
   linkPartnerAction, unlinkPartnerAction,
@@ -34,10 +34,9 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
 
   // Estados de Mensagens
   const [messages, setMessages] = useState<any[]>([]);
-  const [loadingMsg, setLoadingMsg] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Carregar mensagens periodicamente ou ao montar
+  // Carregar mensagens
   const fetchMessages = async () => {
     const msgs = await getPartnerMessagesAction();
     setMessages(msgs);
@@ -47,7 +46,7 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
     if (partner) fetchMessages();
   }, [partner]);
 
-  // Scroll automático para última mensagem
+  // Scroll automático
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -117,10 +116,12 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
       id: Math.random().toString(),
       message: text,
       category,
-      senderId: 'me', // placeholder
+      senderId: 'me', // placeholder visual
       createdAt: new Date()
     };
-    setMessages(prev => [...prev, tempMsg]);
+    // Adiciona ao final da lista (se estiver exibindo em ordem cronológica)
+    // Se a API retorna do mais novo para o mais antigo, ajuste conforme necessário
+    setMessages(prev => [tempMsg, ...prev]);
 
     const res = await sendPartnerMessageAction(category, text);
     if (!res.success) toast.error("Erro ao enviar.");
@@ -264,7 +265,7 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
           </div>
         </div>
 
-        {/* --- COLUNA 2: LOVE ALERTS (NOVO) --- */}
+        {/* --- COLUNA 2: LOVE ALERTS (CHAT) --- */}
         <div className="bg-[#1f1630] rounded-3xl border border-white/5 flex flex-col h-[500px] lg:h-auto overflow-hidden shadow-lg relative">
           {/* Header do Chat */}
           <div className="p-4 border-b border-white/5 bg-[#251a3a]/50 backdrop-blur-sm flex justify-between items-center z-10">
@@ -275,7 +276,7 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
           </div>
 
           {/* Área de Mensagens (Timeline) */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" ref={scrollRef}>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar flex flex-col-reverse" ref={scrollRef}>
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-60">
                 <BellRing size={32} className="mb-2 text-purple-400" />
@@ -283,9 +284,10 @@ export default function PartnerTab({ partner, totalSavings = 0, savingsGoalName 
               </div>
             ) : (
               messages.map((msg, idx) => {
-                // Se senderId for o meu ID (no caso aqui simulamos ou pegamos do contexto, 
-                // mas para simplificar visualmente na lista, assumimos uma lógica de alinhamento)
-                // *Nota: Na implementação real, compare msg.senderId === userId*
+                // Se senderId for o meu ID, mostra à direita
+                const isMe = msg.senderId === 'me' || (partner && msg.sender?.name?.includes('Você')); // Ajuste essa lógica com IDs reais se possível
+                // Para simplificar, assumimos que 'me' é local e o resto vem do banco
+
                 const isLove = msg.category === 'LOVE';
                 const isAlert = msg.category === 'ALERT';
 

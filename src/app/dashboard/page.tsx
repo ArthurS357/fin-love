@@ -2,7 +2,6 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getUserId } from '@/lib/auth';
 import { getDashboardData } from '@/lib/data';
-// ADICIONADO: getFinancialSummaryAction para buscar o total das faturas
 import { getCreditCardsAction, checkRecurringTransactionsAction, getFinancialSummaryAction } from '../actions';
 import Dashboard from '@/components/Dashboard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,11 +25,11 @@ export default async function DashboardPage(props: PageProps) {
   await checkRecurringTransactionsAction();
 
   // 3. Buscar Dados Otimizados em Paralelo (Dashboard + Cartões + Resumo Financeiro)
-  // ADICIONADO: getFinancialSummaryAction() na lista de promessas
   const [data, rawCreditCards, financialSummary] = await Promise.all([
     getDashboardData(userId, monthParam, yearParam),
     getCreditCardsAction(),
-    getFinancialSummaryAction()
+    // CORREÇÃO: Passando o mês e ano para filtrar a fatura corretamente
+    getFinancialSummaryAction(monthParam, yearParam)
   ]);
 
   // Se não houver dados (ex: banco resetado mas cookie ativo), 
@@ -51,10 +50,10 @@ export default async function DashboardPage(props: PageProps) {
     date: new Date(t.date).toISOString(),
     type: t.type as 'INCOME' | 'EXPENSE' | 'INVESTMENT',
     // Mapeia o cartão se existir na transação
-    creditCardId: t.creditCardId || undefined 
+    creditCardId: t.creditCardId || undefined
   }));
 
-  // 5. Serializar Cartões para o Cliente (CORREÇÃO DO ERRO)
+  // 5. Serializar Cartões para o Cliente
   const serializedCreditCards = (rawCreditCards || []).map(card => ({
     ...card,
     limit: card.limit ? Number(card.limit) : 0, // Converte Decimal para Number
@@ -100,8 +99,8 @@ export default async function DashboardPage(props: PageProps) {
         savingsGoalName={user.savingsGoal || "Caixinha dos Sonhos"}
         accumulatedBalance={accumulatedBalance}
         selectedDate={{ month: monthParam, year: yearParam }}
-        creditCards={serializedCreditCards} // <--- Usando a lista serializada
-        totalCreditOpen={totalCreditOpen}   // <--- NOVA PROP: Passando o valor para o Dashboard
+        creditCards={serializedCreditCards}
+        totalCreditOpen={totalCreditOpen}
       />
     </Suspense>
   );

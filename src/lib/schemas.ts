@@ -100,7 +100,8 @@ export const investmentSchema = z.object({
   investedAmount: z.coerce.number().min(0.01, 'Valor inválido'),
   currentAmount: z.coerce.number().min(0, 'Valor inválido').optional(), // Se não preencher, assume igual ao investido
   date: z.string().optional(), // Para registro
-  createTransaction: z.string().optional() // Checkbox "Debitar do saldo?" (vem como string do form)
+  createTransaction: z.string().optional(), // Checkbox "Debitar do saldo?" (vem como string do form)
+  autoDeposit: z.string().optional() // Checkbox "Realizar aporte" (vem como string do form)
 });
 
 export type InvestmentData = z.infer<typeof investmentSchema>;

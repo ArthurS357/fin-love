@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Save, DollarSign, TrendingUp, Calendar } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { X, Save, TrendingUp, Calendar, AlertTriangle, ArrowDownCircle, Wallet, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { addInvestmentAction } from '@/app/actions';
+import { formatCurrency } from '@/lib/utils';
 
 interface InvestmentModalProps {
   isOpen: boolean;
@@ -13,121 +14,258 @@ interface InvestmentModalProps {
 
 export default function InvestmentModal({ isOpen, onClose, onSuccess }: InvestmentModalProps) {
   const [loading, setLoading] = useState(false);
-  
+  const [lowBalanceData, setLowBalanceData] = useState<{ message: string, currentBalance: number } | null>(null);
+
+  // CORREÇÃO: Estado para persistir os dados quando o formulário sumir da tela
+  const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
+
+  const formRef = useRef<HTMLFormElement>(null);
+
   if (!isOpen) return null;
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
+    // Não limpamos lowBalanceData aqui imediatamente para evitar flickers se for reenvio
+
     const res = await addInvestmentAction(formData);
     setLoading(false);
 
     if (res.success) {
-      toast.success("Investimento adicionado!");
+      toast.success(res.message);
       onSuccess();
-      onClose();
+      handleClose();
+    } else if (res.error === 'LOW_BALANCE') {
+      // CORREÇÃO: Salva os dados antes de desmontar o form
+      setPendingFormData(formData);
+
+      setLowBalanceData({
+        message: res.message || 'Saldo insuficiente.',
+        currentBalance: res.currentBalance || 0
+      });
     } else {
       toast.error(res.error || "Erro ao salvar.");
     }
   }
 
+  const handleClose = () => {
+    setLowBalanceData(null);
+    setPendingFormData(null);
+    onClose();
+  };
+
+  const handleResolveLowBalance = async (resolution: 'DEPOSIT' | 'NO_DEBIT') => {
+    // CORREÇÃO: Usa os dados salvos no estado, pois o formRef é null agora
+    if (!pendingFormData) return;
+
+    // Clona o FormData para não alterar o original diretamente
+    const newFormData = new FormData();
+    for (const [key, value] of pendingFormData.entries()) {
+      newFormData.append(key, value);
+    }
+
+    if (resolution === 'DEPOSIT') {
+      newFormData.append('autoDeposit', 'true');
+    } else {
+      // Remove a opção de debitar, apenas registra
+      newFormData.set('createTransaction', 'false');
+    }
+
+    // Reenvia com a flag de resolução
+    setLowBalanceData(null); // Limpa o erro visualmente enquanto carrega
+    await handleSubmit(newFormData);
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-[#1a1025] w-full max-w-md rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
-        
-        {/* Header */}
-        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#1f1630]">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <TrendingUp className="text-pink-500" /> Novo Investimento
-          </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-[#1a1025] w-full max-w-md rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+
+        {/* Header Visual */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500" />
+
+        {/* Topo do Modal */}
+        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#1f1630]/80 backdrop-blur-sm sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            {lowBalanceData ? (
+              <div className="p-2 bg-amber-500/10 rounded-lg text-amber-400">
+                <AlertTriangle size={20} />
+              </div>
+            ) : (
+              <div className="p-2 bg-pink-500/10 rounded-lg text-pink-400">
+                <TrendingUp size={20} />
+              </div>
+            )}
+            <div>
+              <h3 className="text-lg font-bold text-white leading-none">
+                {lowBalanceData ? 'Falta Liquidez' : 'Novo Investimento'}
+              </h3>
+              <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-semibold">
+                {lowBalanceData ? 'Ação Necessária' : 'Adicionar Ativo'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <form action={handleSubmit} className="p-6 space-y-4">
-          
-          {/* Nome */}
-          <div>
-            <label className="text-xs text-gray-400 font-bold ml-1 mb-1 block">NOME DO ATIVO</label>
-            <input 
-              name="name" 
-              required 
-              placeholder="Ex: CDB Nubank, Bitcoin, PETR4..." 
-              className="w-full bg-[#130b20] border border-white/10 rounded-xl p-3 text-white focus:border-pink-500 outline-none transition"
-            />
-          </div>
+        {/* CORPO DO MODAL */}
+        <div className="overflow-y-auto custom-scrollbar">
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Categoria */}
-            <div>
-              <label className="text-xs text-gray-400 font-bold ml-1 mb-1 block">CATEGORIA</label>
-              <select 
-                name="category" 
-                className="w-full bg-[#130b20] border border-white/10 rounded-xl p-3 text-white outline-none appearance-none"
+          {/* --- TELA DE DECISÃO (SALDO INSUFICIENTE) --- */}
+          {lowBalanceData ? (
+            <div className="p-6 space-y-5 animate-in slide-in-from-right duration-300">
+              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
+                <p className="text-amber-200 text-sm leading-relaxed">
+                  <span className="font-bold block mb-1">Ops! O caixa não fecha.</span>
+                  {lowBalanceData.message}
+                </p>
+              </div>
+
+              <div className="text-center space-y-1">
+                <p className="text-white font-medium">De onde veio esse dinheiro?</p>
+                <p className="text-gray-500 text-xs">Para manter seu saldo correto, precisamos saber a origem.</p>
+              </div>
+
+              <div className="space-y-3">
+                {/* Opção 1: Aporte */}
+                <button
+                  onClick={() => handleResolveLowBalance('DEPOSIT')}
+                  className="w-full group bg-gradient-to-br from-[#1f1630] to-[#130b20] hover:to-[#2d2145] border border-emerald-500/30 p-4 rounded-2xl flex items-center gap-4 transition-all hover:border-emerald-500/50 hover:shadow-[0_0_20px_rgba(16,185,129,0.1)] text-left"
+                >
+                  <div className="bg-emerald-500/20 p-3 rounded-full text-emerald-400 group-hover:scale-110 transition-transform">
+                    <ArrowDownCircle size={24} />
+                  </div>
+                  <div>
+                    <span className="block text-white font-bold text-sm">Transferi de outra conta</span>
+                    <span className="block text-gray-500 text-xs mt-0.5">O sistema criará um "Aporte" e depois o investimento.</span>
+                  </div>
+                </button>
+
+                {/* Opção 2: Apenas Registrar */}
+                <button
+                  onClick={() => handleResolveLowBalance('NO_DEBIT')}
+                  className="w-full group bg-gradient-to-br from-[#1f1630] to-[#130b20] hover:to-[#2d2145] border border-white/10 p-4 rounded-2xl flex items-center gap-4 transition-all hover:border-white/30 text-left"
+                >
+                  <div className="bg-white/10 p-3 rounded-full text-gray-400 group-hover:scale-110 transition-transform">
+                    <Wallet size={24} />
+                  </div>
+                  <div>
+                    <span className="block text-white font-bold text-sm">Já estava investido / Externo</span>
+                    <span className="block text-gray-500 text-xs mt-0.5">Apenas registrar o ativo, sem mexer no saldo da conta.</span>
+                  </div>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setLowBalanceData(null)}
+                className="w-full py-3 text-gray-500 text-xs font-bold hover:text-white flex items-center justify-center gap-2 transition"
               >
-                <option value="RENDA_FIXA">Renda Fixa</option>
-                <option value="ACOES">Ações</option>
-                <option value="FII">Fundos Imob. (FII)</option>
-                <option value="CRIPTO">Criptomoedas</option>
-                <option value="OUTROS">Outros</option>
-              </select>
+                <ArrowLeft size={14} /> Voltar e corrigir valor
+              </button>
             </div>
+          ) : (
 
-            {/* Data */}
-            <div>
-              <label className="text-xs text-gray-400 font-bold ml-1 mb-1 block">DATA</label>
-              <div className="relative">
-                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input 
-                  type="date" 
-                  name="date" 
-                  defaultValue={new Date().toISOString().split('T')[0]}
-                  className="w-full bg-[#130b20] border border-white/10 rounded-xl p-3 pl-10 text-white outline-none text-sm"
+            /* --- FORMULÁRIO PADRÃO --- */
+            <form ref={formRef} action={handleSubmit} className="p-6 space-y-5 animate-in fade-in duration-300">
+
+              {/* Nome */}
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-bold ml-1 uppercase tracking-widest">Nome do Ativo</label>
+                <input
+                  name="name"
+                  required
+                  placeholder="Ex: Nubank, Bitcoin, Tesouro Direto..."
+                  className="w-full bg-[#130b20] border border-white/10 rounded-xl p-4 text-white placeholder:text-gray-600 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none transition-all shadow-inner"
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Valor */}
-          <div>
-            <label className="text-xs text-gray-400 font-bold ml-1 mb-1 block">VALOR INVESTIDO (R$)</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-pink-500 font-bold">R$</span>
-              <input 
-                name="investedAmount" 
-                type="number" 
-                step="0.01" 
-                required 
-                placeholder="0.00" 
-                className="w-full bg-[#130b20] border border-white/10 rounded-xl p-3 pl-12 text-white text-lg font-bold outline-none focus:border-pink-500 transition"
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                {/* Categoria */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-400 font-bold ml-1 uppercase tracking-widest">Categoria</label>
+                  <div className="relative">
+                    <select
+                      name="category"
+                      className="w-full bg-[#130b20] border border-white/10 rounded-xl p-4 text-white outline-none appearance-none focus:border-pink-500 transition-all cursor-pointer"
+                    >
+                      <option value="RENDA_FIXA">Renda Fixa</option>
+                      <option value="ACOES">Ações</option>
+                      <option value="FII">Fundos Imob.</option>
+                      <option value="CRIPTO">Criptomoedas</option>
+                      <option value="OUTROS">Outros</option>
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+                      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </div>
+                  </div>
+                </div>
 
-          {/* Checkbox Integração */}
-          <div className="bg-pink-500/10 border border-pink-500/20 rounded-xl p-4 flex items-start gap-3">
-            <input 
-              type="checkbox" 
-              name="createTransaction" 
-              id="createTransaction" 
-              defaultChecked 
-              className="mt-1 w-4 h-4 accent-pink-500"
-            />
-            <label htmlFor="createTransaction" className="text-sm text-gray-300 cursor-pointer select-none">
-              <span className="block font-bold text-pink-200">Debitar do Saldo?</span>
-              Criar automaticamente uma despesa no extrato referente a este investimento.
-            </label>
-          </div>
+                {/* Data */}
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-400 font-bold ml-1 uppercase tracking-widest">Data</label>
+                  <div className="relative group">
+                    <Calendar size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-pink-500 transition-colors" />
+                    <input
+                      type="date"
+                      name="date"
+                      defaultValue={new Date().toISOString().split('T')[0]}
+                      className="w-full bg-[#130b20] border border-white/10 rounded-xl p-4 pl-12 text-white outline-none text-sm focus:border-pink-500 transition-all [color-scheme:dark]"
+                    />
+                  </div>
+                </div>
+              </div>
 
-          {/* Botão Salvar */}
-          <button 
-            disabled={loading}
-            type="submit" 
-            className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-900/20 transition active:scale-95 flex items-center justify-center gap-2 mt-4"
-          >
-            {loading ? <span className="animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full"/> : <Save size={20} />}
-            Salvar Investimento
-          </button>
+              {/* Valor */}
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-bold ml-1 uppercase tracking-widest">Valor Investido</label>
+                <div className="relative group">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-pink-500 font-bold text-lg group-focus-within:scale-110 transition-transform">R$</span>
+                  <input
+                    name="investedAmount"
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    className="w-full bg-[#130b20] border border-white/10 rounded-xl p-4 pl-12 text-white text-xl font-bold outline-none focus:border-pink-500 transition-all placeholder:text-gray-700"
+                  />
+                </div>
+              </div>
 
-        </form>
+              {/* Checkbox Integração */}
+              <div className="bg-pink-500/5 border border-pink-500/20 rounded-2xl p-4 flex gap-4 transition-colors hover:bg-pink-500/10">
+                <div className="mt-1">
+                  <input
+                    type="checkbox"
+                    name="createTransaction"
+                    id="createTransaction"
+                    defaultChecked
+                    className="w-5 h-5 accent-pink-500 rounded cursor-pointer"
+                  />
+                </div>
+                <label htmlFor="createTransaction" className="cursor-pointer select-none">
+                  <span className="block text-sm font-bold text-pink-200">Debitar do Saldo?</span>
+                  <span className="block text-xs text-gray-400 mt-1 leading-relaxed">
+                    Se marcado, subtrai este valor da sua conta corrente na tela inicial. Se desmarcado, apenas registra o ativo.
+                  </span>
+                </label>
+              </div>
+
+              {/* Botão Salvar */}
+              <button
+                disabled={loading}
+                type="submit"
+                className="w-full bg-gradient-to-r from-pink-600 to-pink-500 hover:from-pink-500 hover:to-pink-400 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-900/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {loading ? <span className="animate-spin w-5 h-5 border-2 border-white/30 border-t-white rounded-full" /> : <Save size={20} />}
+                {loading ? 'Processando...' : 'Confirmar Investimento'}
+              </button>
+
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

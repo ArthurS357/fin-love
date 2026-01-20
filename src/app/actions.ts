@@ -1122,7 +1122,7 @@ export async function resetPasswordAction(token: string, formData: FormData) {
 }
 
 // ==========================================
-// 11. GESTÃO DE INVESTIMENTOS (CORRIGIDO)
+// 11. GESTÃO DE INVESTIMENTOS (LÓGICA BLINDADA)
 // ==========================================
 
 export async function addInvestmentAction(formData: FormData) {
@@ -1136,43 +1136,156 @@ export async function addInvestmentAction(formData: FormData) {
     return { error: validation.error.issues[0].message };
   }
 
-  const { name, category, investedAmount, createTransaction, date } = validation.data;
+  const { name, category, investedAmount, createTransaction, date, autoDeposit } = validation.data;
   const currentAmount = validation.data.currentAmount || investedAmount;
+
+  // Ajuste de fuso horário para evitar que caia no dia anterior
   const txDate = date ? new Date(date) : new Date();
+  txDate.setUTCHours(12, 0, 0, 0);
 
   try {
-    const newInvestment = await prisma.investment.create({
-      data: {
-        userId,
-        name,
-        category,
-        investedAmount,
-        currentAmount
-      }
-    });
+    let transactionId: string | null = null;
 
+    // 1. VERIFICAÇÃO DE SALDO E CRIAÇÃO DE APORTE (GAP)
     if (createTransaction === 'on' || createTransaction === 'true') {
-      await prisma.transaction.create({
+
+      // Busca saldo atual do usuário (Considerando parceiro se houver)
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+      const userIds = [userId];
+      if (user?.partnerId) userIds.push(user.partnerId);
+
+      const summary = await prisma.transaction.groupBy({
+        by: ['type'],
+        where: { userId: { in: userIds } },
+        _sum: { amount: true }
+      });
+
+      const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
+      const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
+      const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
+
+      // Saldo Real Disponível na Conta Corrente
+      const currentBalance = totalIncome - totalExpense - totalInvested;
+
+      // Se o investimento for maior que o saldo, precisamos cobrir o buraco
+      if (investedAmount > currentBalance) {
+
+        // Se o usuário NÃO marcou "Veio de outra conta", bloqueamos para evitar saldo negativo
+        if (!autoDeposit || autoDeposit !== 'true') {
+          return {
+            error: 'LOW_BALANCE',
+            message: `Saldo insuficiente (R$ ${currentBalance.toFixed(2)}). Faltam R$ ${(investedAmount - currentBalance).toFixed(2)}.`,
+            currentBalance
+          };
+        }
+
+        // Se autorizou, criamos o APORTE APENAS DA DIFERENÇA
+        if (autoDeposit === 'true') {
+          // Lógica: Saldo Atual + Aporte = Valor do Investimento
+          // Logo: Aporte = Valor do Investimento - Saldo Atual
+          // (Se saldo for negativo, assumimos 0 disponível para cálculo do aporte necessário)
+          const balanceToConsider = currentBalance > 0 ? currentBalance : 0;
+          const gap = investedAmount - balanceToConsider;
+
+          if (gap > 0) {
+            await prisma.transaction.create({
+              data: {
+                userId,
+                description: `Aporte Automático: ${name}`,
+                amount: gap,
+                type: 'INCOME', // Entra dinheiro para cobrir o rombo
+                category: 'Aporte Investimento',
+                date: txDate,
+                isPaid: true
+              }
+            });
+          }
+        }
+      }
+
+      // 2. DEBITA O VALOR DO INVESTIMENTO DA CONTA
+      // Isso garante que o saldo da Home diminua (ou zere) corretamente
+      const transaction = await prisma.transaction.create({
         data: {
           userId,
           description: `Investimento: ${name}`,
           amount: investedAmount,
-          type: 'INVESTMENT',
+          type: 'INVESTMENT', // Sai do saldo (Conta Corrente)
           category: 'Investimentos',
           date: txDate,
           isPaid: true,
         }
       });
+
+      // Salvamos o ID da transação para poder estornar se deletar o investimento depois
+      transactionId = transaction.id;
     }
 
-    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
+    // 3. CRIA O REGISTRO DE PATRIMÔNIO (PORTFÓLIO)
+    await prisma.investment.create({
+      data: {
+        userId,
+        name,
+        category,
+        investedAmount,
+        currentAmount,
+        originTransactionId: transactionId // Vínculo essencial para a exclusão funcionar
+      }
+    });
+
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
-    return { success: true, message: 'Investimento criado!' };
+    return { success: true, message: 'Investimento realizado!' };
 
   } catch (error) {
     console.error("Erro ao criar investimento:", error);
-    return { error: 'Erro ao salvar.' };
+    return { error: 'Erro ao processar.' };
+  }
+}
+
+// --- NOVA FUNÇÃO: RESGATE (TRAZ O DINHEIRO DE VOLTA PARA CONTA) ---
+export async function redeemInvestmentAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { error: 'Auth error' };
+
+  const id = formData.get('id') as string;
+  const amount = parseFloat(formData.get('amount') as string);
+
+  if (!id || isNaN(amount) || amount <= 0) return { error: 'Dados inválidos.' };
+
+  try {
+    const investment = await prisma.investment.findUnique({ where: { id } });
+    if (!investment || investment.userId !== userId) return { error: 'Investimento não encontrado.' };
+
+    if (amount > investment.currentAmount) {
+      return { error: 'Valor de resgate maior que o saldo atual do ativo.' };
+    }
+
+    // 1. Reduz o saldo do Investimento (Ativo)
+    await prisma.investment.update({
+      where: { id },
+      data: { currentAmount: { decrement: amount } }
+    });
+
+    // 2. Credita na Conta Corrente (Entrada)
+    await prisma.transaction.create({
+      data: {
+        userId,
+        description: `Resgate: ${investment.name}`,
+        amount: amount,
+        type: 'INCOME', // Volta para o saldo disponível
+        category: 'Resgate Investimento',
+        date: new Date(),
+        isPaid: true
+      }
+    });
+
+    revalidateTag(`dashboard:${userId}`, 'default');
+    revalidatePath('/dashboard');
+    return { success: true, message: `Resgate de R$ ${amount.toFixed(2)} realizado!` };
+
+  } catch (error) {
+    return { error: 'Erro ao realizar resgate.' };
   }
 }
 
@@ -1214,7 +1327,6 @@ export async function updateInvestmentBalanceAction(id: string, newCurrentAmount
       data: { currentAmount: newCurrentAmount }
     });
 
-    // --- CORREÇÃO AQUI: Adicionado o argumento 'max' ---
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
     return { success: true, message: 'Saldo atualizado!' };
@@ -1233,20 +1345,50 @@ export async function deleteInvestmentAction(id: string) {
     });
 
     if (!investment || investment.userId !== userId) {
-      return { success: false, error: 'Investimento não encontrado ou permissão negada.' };
+      return { success: false, error: 'Investimento não encontrado.' };
     }
 
-    await prisma.investment.delete({
-      where: { id },
-    });
+    // 1. Remove o Investimento (Registro do Ativo)
+    await prisma.investment.delete({ where: { id } });
 
-    // CORREÇÃO AQUI: Adicionado 'default' como segundo argumento
-    revalidateTag(`investments:${userId}`, 'default'); 
-    revalidateTag(`dashboard:${userId}`, 'default'); // Garante que o total do dashboard atualize
-    
+    // 2. LIMPEZA INTELIGENTE: Remove Transações Associadas (Débito e Aporte)
+    // Isso corrige o problema do "saldo somando infinitamente"
+    if (investment.originTransactionId) {
+
+      // Busca a transação de débito original para ter a data de referência
+      const debitTransaction = await prisma.transaction.findUnique({
+        where: { id: investment.originTransactionId }
+      });
+
+      if (debitTransaction) {
+        // a) Remove a saída (O investimento que saiu da conta)
+        await prisma.transaction.delete({ where: { id: investment.originTransactionId } });
+
+        // b) Remove o Aporte Automático associado (A entrada que cobriu o gap)
+        // Usamos heurística segura: Mesmo user + Mesma data/hora (janela de 5s) + Categoria correta + Nome do ativo
+        const timeWindow = 5000;
+        const minDate = new Date(debitTransaction.createdAt.getTime() - timeWindow);
+        const maxDate = new Date(debitTransaction.createdAt.getTime() + timeWindow);
+
+        await prisma.transaction.deleteMany({
+          where: {
+            userId: userId,
+            category: 'Aporte Investimento',
+            type: 'INCOME',
+            description: { contains: investment.name }, // Garante que é do mesmo ativo
+            createdAt: { gte: minDate, lte: maxDate }
+          }
+        });
+      }
+    }
+
+    revalidateTag(`investments:${userId}`, 'default');
+    revalidateTag(`dashboard:${userId}`, 'default');
+
     revalidatePath('/dashboard');
-    return { success: true, message: 'Investimento removido com sucesso!' };
+    return { success: true, message: 'Investimento removido e extrato estornado!' };
   } catch (error) {
+    console.error(error);
     return { success: false, error: 'Erro ao excluir investimento.' };
   }
 }
@@ -1515,7 +1657,7 @@ export async function createBulkTransactionsAction(transactions: any[]) {
       // Lógica inteligente para definir de quem é a transação baseada no nome do CSV
       let targetUserId = userId;
       const ownerName = t.owner ? t.owner.toLowerCase().trim() : '';
-      
+
       // Se o nome no CSV parecer com o do parceiro, atribui a ele
       if (user?.partnerId && user.partner?.name && ownerName.includes(user.partner.name.toLowerCase().split(' ')[0])) {
         targetUserId = user.partnerId;
@@ -1529,7 +1671,7 @@ export async function createBulkTransactionsAction(transactions: any[]) {
         category: t.category || 'Outros',
         date: new Date(t.date),
         isPaid: t.status === 'Pago', // Mapeia 'Pago' para true
-        paymentMethod: t.paymentMethod || 'DEBIT' 
+        paymentMethod: t.paymentMethod || 'DEBIT'
       };
     });
 

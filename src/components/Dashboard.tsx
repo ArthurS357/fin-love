@@ -42,7 +42,7 @@ interface DashboardProps {
   accumulatedBalance: number;
   selectedDate: { month: number; year: number; };
   creditCards: any[];
-  totalCreditOpen: number; // <--- NOVA PROP: Total de faturas em aberto
+  totalCreditOpen: number;
 }
 
 // --- UTILS MATEMÁTICOS ---
@@ -85,7 +85,7 @@ const CreditCardModal = dynamic(() => import('./modals/CreditCardModal'), { ssr:
 export default function Dashboard({
   initialTransactions, userName, userEmail, partner,
   spendingLimit, totalSavings, savingsGoalName, accumulatedBalance, selectedDate,
-  creditCards, totalCreditOpen // <--- Recebendo a nova prop
+  creditCards, totalCreditOpen
 }: DashboardProps) {
 
   const router = useRouter();
@@ -139,26 +139,31 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
-  // --- CÁLCULO DE ESTATÍSTICAS (CORRIGIDO PARA O NOVO FLUXO) ---
+  // --- CÁLCULO DE ESTATÍSTICAS (CORRIGIDO: Subtrai Investimentos do Saldo) ---
   const calculateStats = (txs: Transaction[]) => {
-    // 1. Gráficos de Consumo: Consideram TUDO (Pago + Crédito Pendente)
-    // Isso mostra "quanto você consumiu" no mês, independente se já saiu do bolso.
+    // 1. Gráficos de Consumo (Informativo - Apenas Gastos)
     const income = txs.filter(t => t.type === 'INCOME').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
     const expense = txs.filter(t => t.type === 'EXPENSE').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
-    
+
     // 2. Saldo Real (Caixa): Considera APENAS O QUE FOI PAGO
-    // Isso evita que compras no crédito "comam" o saldo antes da hora.
     const paidIncome = txs
       .filter(t => t.type === 'INCOME' && t.isPaid)
       .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
     const paidExpense = txs
-      .filter(t => t.type === 'EXPENSE' && t.isPaid) 
+      .filter(t => t.type === 'EXPENSE' && t.isPaid)
       .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
-    // Saldo = Entradas Reais - Saídas Reais
-    const balance = fromCents(toCents(paidIncome) - toCents(paidExpense));
-    
+    // IMPORTANTE: Subtrair Investimentos Pagos do Saldo
+    // Isso anula o efeito do "Aporte" que entrou apenas para cobrir o investimento,
+    // mantendo o saldo da conta corrente fiel à realidade.
+    const paidInvestments = txs
+      .filter(t => t.type === 'INVESTMENT' && t.isPaid)
+      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+
+    // Saldo = Entradas - Saídas - Investimentos
+    const balance = fromCents(toCents(paidIncome) - toCents(paidExpense) - toCents(paidInvestments));
+
     return { income, expense, balance };
   };
 
@@ -280,7 +285,7 @@ export default function Dashboard({
               month={selectedDate.month}
               year={selectedDate.year}
               partnerId={partnerId}
-              totalCreditOpen={totalCreditOpen} // <--- Passando valor para a Home
+              totalCreditOpen={totalCreditOpen}
               creditCards={creditCards}
             />
           )}

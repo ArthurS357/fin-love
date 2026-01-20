@@ -138,7 +138,7 @@ export async function logoutUser() {
 }
 
 // ==========================================
-// 2. TRANSAÇÕES (CRUD + PARCELAMENTO) - ATUALIZADO
+// 2. TRANSAÇÕES (CRUD + PARCELAMENTO) - FINAL
 // ==========================================
 
 export async function addTransaction(formData: FormData) {
@@ -165,31 +165,24 @@ export async function addTransaction(formData: FormData) {
     creditCardId
   } = validation.data;
 
-  // --- CORREÇÃO DE FUSO HORÁRIO (Timezone Fix) ---
-  // Forçamos o horário para 12:00 UTC.
-  // Isso evita que 00:00 UTC vire "Ontem às 21:00" no Brasil (UTC-3).
+  // --- CORREÇÃO DE FUSO HORÁRIO ---
   let baseDate = new Date();
   if (date) {
     baseDate = new Date(date);
     baseDate.setUTCHours(12, 0, 0, 0);
   }
-  // -----------------------------------------------
 
   // --- LÓGICA DE CARTÃO DE CRÉDITO ---
-  let finalIsPaid = true; // Padrão: Pago (Débito/Pix)
+  let finalIsPaid = true;
 
   if (paymentMethod === 'CREDIT') {
-    finalIsPaid = false; // Crédito nasce Pendente
-
-    // Se tiver cartão, verifica fechamento
+    finalIsPaid = false;
     if (creditCardId) {
       try {
         const card = await prisma.creditCard.findUnique({ where: { id: creditCardId } });
         if (card) {
-          // Se a compra for feita DEPOIS ou NO DIA do fechamento, joga para o próximo mês
           if (baseDate.getDate() >= card.closingDay) {
             baseDate = addMonths(baseDate, 1);
-            // Mantém o horário seguro de meio-dia ao avançar o mês
             baseDate.setUTCHours(12, 0, 0, 0);
           }
         }
@@ -210,7 +203,6 @@ export async function addTransaction(formData: FormData) {
 
       for (let i = 0; i < installments; i++) {
         const futureDate = addMonths(baseDate, i);
-        // Garante que as parcelas futuras também fiquem no meio-dia UTC
         futureDate.setUTCHours(12, 0, 0, 0);
 
         const isLast = i === installments - 1;
@@ -253,11 +245,19 @@ export async function addTransaction(formData: FormData) {
     // 3. RECORRÊNCIA
     if (isRecurring === 'true' || isRecurring === 'on') {
       let nextRun = addMonths(baseDate, 1);
-      nextRun.setUTCHours(12, 0, 0, 0); // Segurança na recorrência também
+      nextRun.setUTCHours(12, 0, 0, 0);
 
       if (recurringDay) {
-        nextRun = setDate(nextRun, recurringDay);
+        // Ajusta data sem quebrar meses (ex: 31 -> 28/30)
+        const d = new Date(nextRun);
+        d.setDate(recurringDay);
+        // Se o mês mudou inesperadamente (ex: 31 Fev -> Março), volta pro último dia do mês correto
+        if (d.getMonth() !== (nextRun.getMonth())) {
+          d.setDate(0);
+        }
+        nextRun = d;
       }
+
       await prisma.recurringTransaction.create({
         data: {
           userId,
@@ -277,6 +277,7 @@ export async function addTransaction(formData: FormData) {
     revalidatePath('/dashboard');
 
     return { success: true }
+
   } catch (error) {
     console.error(error);
     return { error: 'Erro ao salvar transação.' }
@@ -299,13 +300,11 @@ export async function updateTransaction(formData: FormData) {
 
   const { type, amount, description, category, date, creditCardId, isPaid } = validation.data
 
-  // --- CORREÇÃO DE FUSO HORÁRIO NA EDIÇÃO ---
   let finalDate = undefined;
   if (date) {
     finalDate = new Date(date);
     finalDate.setUTCHours(12, 0, 0, 0);
   }
-  // ------------------------------------------
 
   await prisma.transaction.update({
     where: { id },
@@ -314,7 +313,7 @@ export async function updateTransaction(formData: FormData) {
       amount,
       description,
       category,
-      date: finalDate, // Usa a data corrigida
+      date: finalDate,
       creditCardId: creditCardId || null,
       isPaid: isPaid
     },
@@ -328,6 +327,7 @@ export async function updateTransaction(formData: FormData) {
 export async function deleteTransaction(id: string) {
   const userId = await getUserId()
   if (!userId) return { error: 'Auth error' }
+
   const transaction = await prisma.transaction.findUnique({ where: { id } });
   if (!transaction || transaction.userId !== userId) return { error: 'Não autorizado.' };
 
@@ -341,6 +341,7 @@ export async function deleteTransaction(id: string) {
 export async function deleteInstallmentGroupAction(installmentId: string) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
+
   try {
     await prisma.transaction.deleteMany({
       where: { installmentId: installmentId, userId: userId }
@@ -1787,4 +1788,88 @@ export async function sendTransactionMessageAction(transactionId: string, text: 
 
   revalidateTag(`dashboard:${userId}`, 'default');
   return { success: true };
+}
+
+// ==========================================
+// 17. IMPORTAÇÃO DE TRANSAÇÕES (CSV/TXT)
+// ==========================================
+
+export async function importTransactionsCsvAction(formData: FormData) {
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Auth error' };
+
+  const file = formData.get('file') as File;
+  if (!file) return { success: false, error: 'Arquivo não encontrado.' };
+
+  try {
+    const text = await file.text();
+    const lines = text.split('\n');
+    const transactionsToCreate = [];
+
+    // Pula a primeira linha se for cabeçalho (verifica se tem "Data" ou "Valor")
+    const startIndex = (lines[0]?.toLowerCase().includes('data') || lines[0]?.toLowerCase().includes('valor')) ? 1 : 0;
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+
+      // Espera formato: Data,Descrição,Valor (gerado pelo SmartImporter)
+      const parts = line.split(',');
+      if (parts.length < 3) continue;
+
+      const clean = (s: string) => s?.replace(/^"|"$/g, '').trim(); // Remove aspas extras
+
+      const dateStr = clean(parts[0]);
+      const description = clean(parts[1]);
+      const amountStr = clean(parts[2]);
+
+      if (!dateStr || !amountStr) continue;
+
+      // Parse Data (DD/MM/YYYY)
+      const [day, month, year] = dateStr.split('/').map(Number);
+      if (!day || !month) continue;
+
+      // Se não tiver ano (comum em alguns extratos), usa o atual
+      const currentYear = new Date().getFullYear();
+      const finalYear = (year && year > 1900) ? year : currentYear;
+
+      const dateObj = new Date(finalYear, month - 1, day);
+      dateObj.setUTCHours(12, 0, 0, 0); // Fuso horário seguro
+
+      // Parse Valor
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount)) continue;
+
+      // Define Tipo: Se negativo no extrato = EXPENSE, Positivo = INCOME
+      const type = amount < 0 ? 'EXPENSE' : 'INCOME';
+      const finalAmount = Math.abs(amount); // No banco salvamos sempre positivo
+
+      transactionsToCreate.push({
+        userId,
+        description: description || 'Sem descrição',
+        amount: finalAmount,
+        type,
+        category: 'Importado', // Categoria genérica para o usuário classificar depois
+        date: dateObj,
+        isPaid: true, // Se veio do extrato, já foi pago
+        paymentMethod: 'DEBIT' // Assume débito/conta corrente
+      });
+    }
+
+    if (transactionsToCreate.length === 0) {
+      return { success: false, error: 'Nenhuma transação válida encontrada.' };
+    }
+
+    // Salva em lote (Muito mais rápido)
+    await prisma.transaction.createMany({ data: transactionsToCreate });
+
+    revalidateTag(`dashboard:${userId}`, 'default');
+    revalidatePath('/dashboard');
+
+    return { success: true, count: transactionsToCreate.length };
+
+  } catch (error) {
+    console.error("Erro import CSV:", error);
+    return { success: false, error: 'Erro ao processar arquivo.' };
+  }
 }

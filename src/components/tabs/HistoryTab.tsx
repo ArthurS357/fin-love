@@ -13,9 +13,9 @@ import { exportTransactionsCsvAction, deleteTransactionsAction } from '@/app/act
 import { toast } from 'sonner';
 
 // --- COMPONENTES ---
-import CsvImporter from '../CsvImporter';
+import SmartImporter from '../SmartImporter'; // Atualizado para o Leitor de PDF
 import FinancialCalendar from '../FinancialCalendar';
-import TransactionDetailsModal from '../modals/TransactionDetailsModal'; // Novo Modal
+import TransactionDetailsModal from '../modals/TransactionDetailsModal';
 
 interface Transaction {
   id: string;
@@ -198,13 +198,14 @@ export default function HistoryTab({
         </div>
       )}
 
-      {/* --- NOVA ÁREA: CALENDÁRIO & IMPORTADOR --- */}
+      {/* --- ÁREA: CALENDÁRIO & IMPORTADOR --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
         <div className="lg:col-span-2">
           <FinancialCalendar transactions={transactions} month={month} year={year} />
         </div>
         <div>
-          <CsvImporter />
+          {/* Substituído CsvImporter pelo SmartImporter (PDF/Texto) */}
+          <SmartImporter />
         </div>
       </div>
 

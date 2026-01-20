@@ -139,13 +139,14 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
-  // --- CÁLCULO DE ESTATÍSTICAS (CORRIGIDO: Subtrai Investimentos do Saldo) ---
+  // --- CÁLCULO DE ESTATÍSTICAS (ATUALIZADO) ---
   const calculateStats = (txs: Transaction[]) => {
-    // 1. Gráficos de Consumo (Informativo - Apenas Gastos)
+    // 1. Gráficos de Consumo (Informativo - Apenas Gastos e Entradas)
     const income = txs.filter(t => t.type === 'INCOME').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
     const expense = txs.filter(t => t.type === 'EXPENSE').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
     // 2. Saldo Real (Caixa): Considera APENAS O QUE FOI PAGO
+    // Inclui Entradas, Saídas e *Investimentos*
     const paidIncome = txs
       .filter(t => t.type === 'INCOME' && t.isPaid)
       .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
@@ -154,14 +155,13 @@ export default function Dashboard({
       .filter(t => t.type === 'EXPENSE' && t.isPaid)
       .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
-    // IMPORTANTE: Subtrair Investimentos Pagos do Saldo
-    // Isso anula o efeito do "Aporte" que entrou apenas para cobrir o investimento,
-    // mantendo o saldo da conta corrente fiel à realidade.
+    // CORREÇÃO: Calculamos o total investido pago para subtrair do saldo
     const paidInvestments = txs
       .filter(t => t.type === 'INVESTMENT' && t.isPaid)
       .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
     // Saldo = Entradas - Saídas - Investimentos
+    // Assim, o dinheiro que foi para investimento sai da conta corrente da Home.
     const balance = fromCents(toCents(paidIncome) - toCents(paidExpense) - toCents(paidInvestments));
 
     return { income, expense, balance };

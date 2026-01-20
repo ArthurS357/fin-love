@@ -1791,7 +1791,7 @@ export async function sendTransactionMessageAction(transactionId: string, text: 
 }
 
 // ==========================================
-// 17. IMPORTAÇÃO DE TRANSAÇÕES (CSV/TXT)
+// 17. IMPORTAÇÃO DE TRANSAÇÕES (CSV/TXT) - COM INTELIGÊNCIA ANTI-DUPLICIDADE
 // ==========================================
 
 export async function importTransactionsCsvAction(formData: FormData) {
@@ -1804,20 +1804,19 @@ export async function importTransactionsCsvAction(formData: FormData) {
   try {
     const text = await file.text();
     const lines = text.split('\n');
-    const transactionsToCreate = [];
+    const candidates = []; // Candidatos a importação
 
-    // Pula a primeira linha se for cabeçalho (verifica se tem "Data" ou "Valor")
+    // Pula a primeira linha se for cabeçalho
     const startIndex = (lines[0]?.toLowerCase().includes('data') || lines[0]?.toLowerCase().includes('valor')) ? 1 : 0;
 
     for (let i = startIndex; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
 
-      // Espera formato: Data,Descrição,Valor (gerado pelo SmartImporter)
       const parts = line.split(',');
       if (parts.length < 3) continue;
 
-      const clean = (s: string) => s?.replace(/^"|"$/g, '').trim(); // Remove aspas extras
+      const clean = (s: string) => s?.replace(/^"|"$/g, '').trim();
 
       const dateStr = clean(parts[0]);
       const description = clean(parts[1]);
@@ -1825,11 +1824,10 @@ export async function importTransactionsCsvAction(formData: FormData) {
 
       if (!dateStr || !amountStr) continue;
 
-      // Parse Data (DD/MM/YYYY)
+      // Parse Data
       const [day, month, year] = dateStr.split('/').map(Number);
       if (!day || !month) continue;
 
-      // Se não tiver ano (comum em alguns extratos), usa o atual
       const currentYear = new Date().getFullYear();
       const finalYear = (year && year > 1900) ? year : currentYear;
 
@@ -1840,33 +1838,94 @@ export async function importTransactionsCsvAction(formData: FormData) {
       const amount = parseFloat(amountStr);
       if (isNaN(amount)) continue;
 
-      // Define Tipo: Se negativo no extrato = EXPENSE, Positivo = INCOME
       const type = amount < 0 ? 'EXPENSE' : 'INCOME';
-      const finalAmount = Math.abs(amount); // No banco salvamos sempre positivo
+      const finalAmount = Math.abs(amount);
 
-      transactionsToCreate.push({
+      candidates.push({
         userId,
         description: description || 'Sem descrição',
         amount: finalAmount,
         type,
-        category: 'Importado', // Categoria genérica para o usuário classificar depois
+        category: 'Importado',
         date: dateObj,
-        isPaid: true, // Se veio do extrato, já foi pago
-        paymentMethod: 'DEBIT' // Assume débito/conta corrente
+        isPaid: true,
+        paymentMethod: 'DEBIT'
       });
     }
 
-    if (transactionsToCreate.length === 0) {
+    if (candidates.length === 0) {
       return { success: false, error: 'Nenhuma transação válida encontrada.' };
     }
 
-    // Salva em lote (Muito mais rápido)
+    // --- INTELIGÊNCIA: FILTRAR DUPLICATAS ---
+
+    // 1. Define o intervalo de busca no banco (Min Data até Max Data do arquivo)
+    const timestamps = candidates.map(c => c.date.getTime());
+    const minDate = new Date(Math.min(...timestamps));
+    const maxDate = new Date(Math.max(...timestamps));
+
+    // Margem de segurança de 1 dia antes e depois
+    const searchStart = new Date(minDate); searchStart.setDate(searchStart.getDate() - 1);
+    const searchEnd = new Date(maxDate); searchEnd.setDate(searchEnd.getDate() + 1);
+
+    // 2. Busca transações já existentes nesse período
+    const existingTransactions = await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: { gte: searchStart, lte: searchEnd }
+      },
+      select: { date: true, amount: true, description: true, type: true }
+    });
+
+    // 3. Filtra apenas o que é realmente novo
+    const transactionsToCreate = candidates.filter(candidate => {
+      // Normaliza dados do candidato
+      const cDate = candidate.date.toISOString().split('T')[0]; // YYYY-MM-DD
+      const cAmount = Number(candidate.amount).toFixed(2);
+      const cDesc = candidate.description.toLowerCase().replace(/[^a-z0-9]/g, ''); // Apenas letras/numeros
+
+      // Verifica se existe alguma transação no banco que conflita
+      const isDuplicate = existingTransactions.some(existing => {
+        const eDate = existing.date.toISOString().split('T')[0];
+        const eAmount = Number(existing.amount).toFixed(2);
+
+        // Regra 1: Data e Valor Diferentes? Não é duplicata.
+        if (eDate !== cDate || eAmount !== cAmount || existing.type !== candidate.type) {
+          return false;
+        }
+
+        // Regra 2 (Inteligência): Se Data e Valor são iguais, analisa a descrição
+        const eDesc = existing.description.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // a) Descrição Exata (ex: "Uber" vs "Uber")
+        if (eDesc === cDesc) return true;
+
+        // b) Descrição Contida (ex: "Uber" vs "Uber Trip 123")
+        // Só aplica se a palavra for relevante (>3 letras) para evitar falsos positivos
+        if (cDesc.length > 3 && eDesc.includes(cDesc)) return true;
+        if (eDesc.length > 3 && cDesc.includes(eDesc)) return true;
+
+        return false; // Se chegou aqui, é mesmo valor/data mas descrição muito diferente (ex: Padaria A vs Padaria B)
+      });
+
+      return !isDuplicate; // Mantém apenas se NÃO for duplicata
+    });
+
+    if (transactionsToCreate.length === 0) {
+      return { success: true, count: 0, message: 'Todas as transações já existem no sistema.' };
+    }
+
+    // Salva apenas as novas
     await prisma.transaction.createMany({ data: transactionsToCreate });
 
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard');
 
-    return { success: true, count: transactionsToCreate.length };
+    const ignoredCount = candidates.length - transactionsToCreate.length;
+    let msg = `${transactionsToCreate.length} importadas com sucesso!`;
+    if (ignoredCount > 0) msg += ` (${ignoredCount} duplicadas ignoradas)`;
+
+    return { success: true, count: transactionsToCreate.length, message: msg };
 
   } catch (error) {
     console.error("Erro import CSV:", error);

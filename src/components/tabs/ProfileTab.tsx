@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import {
   User, Lock, Trash2, Save, LogOut, ShieldCheck,
-  Trophy, Medal, Star, Sparkles, Loader2, Mail, Key
+  Trophy, Medal, Star, Sparkles, Loader2, Mail, Key,
+  CreditCard, Plus, Award, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -12,40 +13,58 @@ import {
   updatePasswordAction,
   deleteAccountAction,
   getBadgesAction,
+  getCreditCardsAction,
+  deleteCreditCardAction,
   logoutUser
 } from '@/app/actions';
+import CreditCardModal from '../modals/CreditCardModal';
 
 interface ProfileTabProps {
   userName: string;
   userEmail: string;
+  user?: any; // Recebe o objeto user completo se disponível
 }
 
-export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
+export default function ProfileTab({ userName, userEmail, user }: ProfileTabProps) {
   const router = useRouter();
+
+  // Estados de Dados
   const [badges, setBadges] = useState<any[]>([]);
-  const [loadingBadges, setLoadingBadges] = useState(true);
+  const [cards, setCards] = useState<any[]>([]);
+
+  // Estados de Loading/UI
+  const [loadingData, setLoadingData] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [savingPass, setSavingPass] = useState(false);
+  const [isCardModalOpen, setIsCardModalOpen] = useState(false);
 
+  // Carrega dados iniciais (Badges e Cartões)
   useEffect(() => {
-    getBadgesAction().then(data => {
-      setBadges(data);
-      setLoadingBadges(false);
-    });
+    loadExtras();
   }, []);
 
-  // Lógica de Nível
-  const userLevel = badges.length >= 5 ? 'Lendário' : badges.length >= 3 ? 'Expert' : 'Iniciante';
+  async function loadExtras() {
+    setLoadingData(true);
+    const [bData, cData] = await Promise.all([
+      getBadgesAction(),
+      getCreditCardsAction()
+    ]);
+    setBadges(bData);
+    setCards(cData);
+    setLoadingData(false);
+  }
 
-  // Cores dinâmicas para o nível
+  // --- LÓGICA DE NÍVEL (Mantida e melhorada) ---
+  const userLevel = badges.length >= 5 ? 'Lendário' : badges.length >= 3 ? 'Expert' : 'Iniciante';
   const getLevelStyles = () => {
     if (badges.length >= 5) return { color: 'text-yellow-400', bg: 'bg-yellow-500', border: 'border-yellow-500/50', shadow: 'shadow-yellow-500/20' };
     if (badges.length >= 3) return { color: 'text-purple-400', bg: 'bg-purple-500', border: 'border-purple-500/50', shadow: 'shadow-purple-500/20' };
     return { color: 'text-blue-400', bg: 'bg-blue-500', border: 'border-blue-500/50', shadow: 'shadow-blue-500/20' };
   };
-
   const levelStyle = getLevelStyles();
+
+  // --- HANDLERS ---
 
   const handleUpdateName = async (formData: FormData) => {
     setSavingName(true);
@@ -56,7 +75,6 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
       toast.error(res.error);
     } else {
       toast.success('Nome atualizado!');
-      // --- CORREÇÃO IMPORTANTE: Força a atualização da interface ---
       router.refresh();
     }
   };
@@ -70,6 +88,13 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
       toast.success('Senha alterada! Faça login novamente.');
       router.push('/login');
     }
+  };
+
+  const handleDeleteCard = async (id: string) => {
+    if (!confirm("Remover este cartão?")) return;
+    await deleteCreditCardAction(id);
+    loadExtras(); // Recarrega a lista
+    toast.success("Cartão removido.");
   };
 
   const handleDeleteAccount = async () => {
@@ -95,7 +120,7 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
   return (
     <div className="space-y-6 pb-24 md:pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-      {/* --- HEADER COM STATUS --- */}
+      {/* --- 1. HEADER COM STATUS & NÍVEL --- */}
       <div className="bg-[#1f1630] rounded-3xl p-6 border border-white/5 relative overflow-hidden shadow-xl">
         <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-[100px] opacity-20 pointer-events-none ${levelStyle.bg}`} />
 
@@ -136,9 +161,9 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* --- COLUNA 1: CONQUISTAS (GAMIFICAÇÃO) --- */}
+        {/* --- COLUNA 1: CONQUISTAS (BADGES) --- */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg h-full flex flex-col">
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col h-full">
             <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
               <div className="p-2 bg-yellow-500/10 rounded-xl">
                 <Trophy className="text-yellow-400" size={20} />
@@ -149,7 +174,7 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
               </div>
             </div>
 
-            {loadingBadges ? (
+            {loadingData ? (
               <div className="flex-1 flex items-center justify-center py-10">
                 <Loader2 className="animate-spin text-purple-500" size={24} />
               </div>
@@ -162,16 +187,16 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
                 <p className="text-xs text-gray-500 max-w-[200px]">Use o app para desbloquear prêmios incríveis!</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 content-start">
+              <div className="grid grid-cols-3 gap-2 content-start">
                 {badges.map((badge) => (
-                  <div key={badge.id} className="group relative bg-[#130b20] p-3 rounded-2xl border border-white/5 hover:border-yellow-500/30 transition-all duration-300 hover:shadow-[0_0_15px_rgba(234,179,8,0.1)] flex flex-col items-center text-center gap-2">
-                    <div className="text-2xl filter drop-shadow-md group-hover:scale-110 transition-transform duration-300">
+                  <div key={badge.id} className="group relative bg-[#130b20] p-2 rounded-2xl border border-white/5 hover:border-yellow-500/30 transition-all duration-300 hover:bg-white/5 flex flex-col items-center text-center gap-1 cursor-help">
+                    <div className="text-xl filter drop-shadow-md group-hover:scale-110 transition-transform duration-300">
                       {badge.icon}
                     </div>
-                    <div className="space-y-0.5">
-                      <p className="font-bold text-[10px] text-white uppercase tracking-wide group-hover:text-yellow-400 transition-colors">
-                        {badge.name}
-                      </p>
+                    {/* Tooltip Nativo (ou customizado) */}
+                    <span className="text-[9px] text-gray-400 truncate w-full">{badge.name}</span>
+                    <div className="absolute bottom-full mb-2 hidden group-hover:block bg-black/90 text-white text-[10px] p-2 rounded-lg border border-white/10 z-20 w-32 shadow-xl">
+                      {badge.description}
                     </div>
                   </div>
                 ))}
@@ -180,10 +205,47 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
           </div>
         </div>
 
-        {/* --- COLUNA 2: FORMULÁRIOS DE EDIÇÃO --- */}
+        {/* --- COLUNA 2: GESTÃO & CONFIGURAÇÕES --- */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* Card Dados Pessoais */}
+          {/* 2. MEUS CARTÕES (NOVA FUNCIONALIDADE) */}
+          <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                <CreditCard size={16} /> Meus Cartões
+              </h3>
+              <button onClick={() => setIsCardModalOpen(true)} className="bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 p-2 rounded-xl transition">
+                <Plus size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar">
+              {cards.length === 0 ? (
+                <div className="text-center py-4 border border-dashed border-white/10 rounded-xl">
+                  <p className="text-gray-500 text-xs">Nenhum cartão cadastrado.</p>
+                </div>
+              ) : (
+                cards.map((card) => (
+                  <div key={card.id} className="bg-[#130b20] p-3 rounded-xl border border-white/5 flex justify-between items-center group hover:bg-[#251b36] transition">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-6 bg-gradient-to-br from-gray-700 to-gray-800 rounded flex items-center justify-center border border-white/10">
+                        <div className="w-4 h-3 bg-yellow-500/20 rounded-sm" />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-sm">{card.name}</p>
+                        <p className="text-[10px] text-gray-500">Fecha dia {card.closingDay} • Vence dia {card.dueDay}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteCard(card.id)} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition p-2">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* 3. DADOS PESSOAIS */}
           <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               <User size={16} /> Informações Básicas
@@ -210,9 +272,8 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
             </form>
           </div>
 
-          {/* Card Segurança */}
+          {/* 4. SEGURANÇA */}
           <div className="bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden">
-            {/* Decorativo de fundo */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-[60px] pointer-events-none" />
 
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -256,7 +317,7 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
             </form>
           </div>
 
-          {/* Zona de Perigo */}
+          {/* 5. ZONA DE PERIGO */}
           <div className="mt-8 pt-6 border-t border-white/5">
             <button
               onClick={handleDeleteAccount}
@@ -270,11 +331,14 @@ export default function ProfileTab({ userName, userEmail }: ProfileTabProps) {
 
         </div>
       </div>
+
+      {/* Modal de Cartão */}
+      <CreditCardModal isOpen={isCardModalOpen} onClose={() => setIsCardModalOpen(false)} onSuccess={loadExtras} />
     </div>
   );
 }
 
-// Pequeno helper para ícone
+// Helper para ícone
 const CheckIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12"></polyline>

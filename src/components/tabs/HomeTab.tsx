@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 // --- NOVOS COMPONENTES DE SAÚDE FINANCEIRA ---
 import FinLoveScore from '../FinLoveScore';
 import Rule503020 from '../Rule503020';
-import SubscriptionsModal from '../modals/SubscriptionsModal'; // Certifique-se de ter criado este arquivo
+import SubscriptionsModal from '../modals/SubscriptionsModal';
 
 // Importação dinâmica
 const PlanningTab = dynamic(() => import('./PlanningTab'), {
@@ -423,15 +423,16 @@ export default function HomeTab({
           </div>
         </div>
 
-        {/* WIDGET DE ANÁLISE: Rosca + Maior Fatura */}
-        <div className="bg-[#1f1630] rounded-3xl border border-white/5 shadow-lg p-6 flex flex-col justify-between relative overflow-hidden">
+        {/* WIDGET DE ANÁLISE: Rosca + Maior Fatura (RESPONSIVO AJUSTADO) */}
+        <div className="bg-[#1f1630] rounded-3xl border border-white/5 shadow-lg p-4 md:p-6 flex flex-col justify-between relative overflow-hidden">
           <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2 z-10">
             <Layers size={14} className="text-purple-400" /> Composição da Fatura
           </h3>
 
-          <div className="flex items-center gap-4 z-10 h-full">
+          {/* AJUSTE MOBILE: Flex-col em telas pequenas, Flex-row em maiores */}
+          <div className="flex flex-col sm:flex-row items-center gap-4 z-10 h-full">
             {/* Gráfico Donut para Cartões */}
-            <div className="w-1/2 h-full min-h-[140px] relative">
+            <div className="w-full sm:w-1/2 h-40 sm:h-full min-h-[160px] relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -460,7 +461,7 @@ export default function HomeTab({
             </div>
 
             {/* Detalhes ao lado */}
-            <div className="w-1/2 space-y-3">
+            <div className="w-full sm:w-1/2 space-y-3">
               {/* Maior Fatura */}
               <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                 <p className="text-[10px] text-gray-400 uppercase font-bold mb-1 flex items-center gap-1">
@@ -551,14 +552,15 @@ export default function HomeTab({
 
       {/* SEÇÃO 5: GRÁFICOS INFERIORES */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* ROSCA DE CATEGORIAS */}
-        <div className="md:col-span-1 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col relative overflow-hidden print:break-inside-avoid">
+        {/* ROSCA DE CATEGORIAS (AJUSTADA TAMANHO MOBILE) */}
+        <div className="md:col-span-1 bg-[#1f1630] p-4 md:p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col relative overflow-hidden print:break-inside-avoid">
           <h3 className="text-base font-bold text-white mb-6 flex items-center gap-2">
             <Zap size={16} className="text-yellow-400" /> Por Categoria
           </h3>
           <div className="flex flex-col items-center justify-center flex-1">
-            <div className="w-40 h-40 rounded-full relative shadow-2xl transition-all hover:scale-105 duration-500" style={{ background: donutGradient }}>
-              <div className="absolute inset-0 m-auto w-28 h-28 bg-[#1f1630] rounded-full flex flex-col items-center justify-center z-10">
+            {/* Responsivo: w-32 (mobile) -> w-40 (sm) */}
+            <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full relative shadow-2xl transition-all hover:scale-105 duration-500" style={{ background: donutGradient }}>
+              <div className="absolute inset-0 m-auto w-20 h-20 sm:w-28 sm:h-28 bg-[#1f1630] rounded-full flex flex-col items-center justify-center z-10">
                 <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Total</span>
                 <span className={`text-sm font-bold text-white ${privacyMode ? 'blur-sm' : ''}`}>
                   {formatCurrency(pieData.reduce((acc, c) => acc + c.value, 0))}
@@ -569,11 +571,11 @@ export default function HomeTab({
         </div>
 
         {/* GRÁFICO DE BARRAS (BALANÇO) */}
-        <div className="md:col-span-2 bg-[#1f1630] p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col justify-center min-h-[250px] print:break-inside-avoid">
+        <div className="md:col-span-2 bg-[#1f1630] p-4 md:p-6 rounded-3xl border border-white/5 shadow-lg flex flex-col justify-center min-h-[250px] print:break-inside-avoid">
           <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><DollarSign size={14} className="text-emerald-400" /> Balanço Geral</h3>
           <div className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData} layout="vertical" margin={{ top: 0, right: 50, left: 0, bottom: 0 }}>
+              <BarChart data={barData} layout="vertical" margin={{ top: 0, right: 30, left: -10, bottom: 0 }}>
                 <XAxis type="number" hide />
                 <YAxis type="category" dataKey="name" tick={{ fill: '#e5e7eb', fontSize: 11, fontWeight: 600 }} width={60} axisLine={false} tickLine={false} />
                 <Tooltip

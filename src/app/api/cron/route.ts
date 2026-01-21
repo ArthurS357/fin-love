@@ -17,21 +17,16 @@ export async function GET(request: Request) {
     const now = new Date();
 
     // ====================================================
-    // BLOCO A: VERIFICAÇÃO DE FATURAS DE CARTÃO (Vencem Hoje)
+    // BLOCO A: VERIFICAÇÃO DE FATURAS (Hoje e Amanhã)
     // ====================================================
-    const todayDay = now.getDate();
 
-    const cardsDueToday = await prisma.creditCard.findMany({
-      where: { dueDay: todayDay },
-      include: { user: { select: { email: true, name: true } } }
-    });
-
-    for (const card of cardsDueToday) {
-      // Soma gastos pendentes deste cartão
+    // Função auxiliar para processar faturas e evitar duplicação de código
+    const processInvoice = async (card: any, label: string, dateReference: Date) => {
+      // Soma gastos pendentes deste cartão (apenas despesas não pagas)
       const invoiceTotal = await prisma.transaction.aggregate({
         where: {
           creditCardId: card.id,
-          isPaid: false, // Fatura em aberto
+          isPaid: false,
           type: 'EXPENSE'
         },
         _sum: { amount: true }
@@ -39,6 +34,7 @@ export async function GET(request: Request) {
 
       const total = Number(invoiceTotal._sum.amount || 0);
 
+      // Se houver fatura em aberto, adiciona à notificação
       if (total > 0 && card.user.email) {
         if (!notificationsMap[card.user.email]) {
           notificationsMap[card.user.email] = {
@@ -47,13 +43,36 @@ export async function GET(request: Request) {
           };
         }
 
-        // Adiciona a fatura como um item de notificação
         notificationsMap[card.user.email].items.push({
-          description: `💳 Fatura ${card.name} (Vence Hoje)`,
+          description: `💳 Fatura ${card.name} (${label})`,
           amount: total,
-          date: now // Data de hoje
+          date: dateReference
         });
       }
+    };
+
+    // --- A.1: Vence HOJE ---
+    const todayDay = now.getDate();
+    const cardsDueToday = await prisma.creditCard.findMany({
+      where: { dueDay: todayDay },
+      include: { user: { select: { email: true, name: true } } }
+    });
+
+    for (const card of cardsDueToday) {
+      await processInvoice(card, 'Vence Hoje', now);
+    }
+
+    // --- A.2: Vence AMANHÃ (Novo) ---
+    const tomorrow = addDays(now, 1);
+    const tomorrowDay = tomorrow.getDate();
+
+    const cardsDueTomorrow = await prisma.creditCard.findMany({
+      where: { dueDay: tomorrowDay },
+      include: { user: { select: { email: true, name: true } } }
+    });
+
+    for (const card of cardsDueTomorrow) {
+      await processInvoice(card, 'Vence Amanhã', tomorrow);
     }
 
     // ====================================================
@@ -153,8 +172,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      period: 'Weekly Lookahead (7 days) + Credit Card Due Check',
-      invoicesFound: cardsDueToday.length,
+      period: 'Weekly Lookahead (7 days) + Credit Card Due Check (Today/Tomorrow)',
+      invoicesFoundToday: cardsDueToday.length,
+      invoicesFoundTomorrow: cardsDueTomorrow.length,
       recurringCreated: newTransactions.length,
       emailsSent: emailPromises.length
     });

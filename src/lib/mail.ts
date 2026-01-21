@@ -39,7 +39,7 @@ export async function sendPasswordResetEmail(email: string, token: string) {
   }
 }
 
-// --- NOVA FUNÇÃO: NOTIFICAÇÃO DE CONTAS ---
+// --- NOVA FUNÇÃO: NOTIFICAÇÃO DE CONTAS (ATUALIZADA) ---
 export async function sendRecurringBillsNotification(
   email: string,
   userName: string,
@@ -54,6 +54,17 @@ export async function sendRecurringBillsNotification(
   const totalAmount = bills.reduce((acc, bill) => acc + Number(bill.amount), 0);
   const formattedTotal = totalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+  // 1. Lógica de Urgência: Verifica se há itens vencendo hoje ou amanhã
+  const hasUrgentItems = bills.some(b =>
+    b.description.toLowerCase().includes('vence hoje') ||
+    b.description.toLowerCase().includes('vence amanhã')
+  );
+
+  // 2. Assunto Dinâmico
+  const subject = hasUrgentItems
+    ? `⚠️ Atenção: Faturas Vencendo! (${bills.length} itens)`
+    : `🔔 ${bills.length} novas contas registradas`;
+
   // Cria a lista de itens HTML
   const itemsHtml = bills.map(bill => `
     <li style="padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
@@ -66,13 +77,17 @@ export async function sendRecurringBillsNotification(
     await resend.emails.send({
       from: 'FinLove <onboarding@resend.dev>',
       to: email,
-      subject: `🔔 ${bills.length} novas contas registradas`,
+      subject: subject,
       html: `
         <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; background-color: #f9fafb; padding: 20px; border-radius: 16px;">
           <div style="background-color: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
             <h2 style="color: #8b5cf6; margin-top: 0;">Olá, ${userName} 👋</h2>
+            
             <p style="font-size: 16px; line-height: 1.5;">
-              O FinLove acabou de registrar <strong>${bills.length} transações automáticas</strong> para este mês.
+              ${hasUrgentItems
+          ? 'Temos <strong>alertas de vencimento</strong> e novas transações para você.'
+          : `O FinLove acabou de registrar <strong>${bills.length} transações automáticas</strong> para este mês.`
+        }
             </p>
             
             <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; margin: 20px 0;">
@@ -97,7 +112,7 @@ export async function sendRecurringBillsNotification(
         </div>
       `
     });
-    console.log(`✅ Email de contas enviado para ${email}`);
+    console.log(`✅ Email enviado para ${email} (Urgente: ${hasUrgentItems})`);
     return true;
   } catch (error) {
     console.error("❌ Erro ao enviar notificação de contas:", error);

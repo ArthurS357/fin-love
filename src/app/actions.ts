@@ -41,27 +41,52 @@ type ActionState = {
 // ==========================================
 // FUNÇÃO AUXILIAR: IA COM FALLBACK (GEMINI 2.0)
 // ==========================================
-async function generateSmartAdvice(apiKey: string, prompt: string) {
-  const modelsToTry = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
-  const genAI = new GoogleGenerativeAI(apiKey);
 
+export async function generateSmartAdvice(apiKey: string, prompt: string): Promise<string> {
+  // Lista com caminhos absolutos exigidos pela API v1beta
+  const modelsToTry = [
+    "models/gemini-1.5-flash",    // Mais estável para cota gratuita
+    "models/gemini-1.5-flash-8b", // Consome menos recursos
+    "gemini-2.0-flash-exp",       // Experimental (instável na cota)
+    "models/gemini-pro"           // Legado v1
+  ];
+
+  const genAI = new GoogleGenerativeAI(apiKey);
   let lastError;
 
   for (const modelName of modelsToTry) {
     try {
+      console.log(`[IA] Tentativa com: ${modelName}`);
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      return result.response.text();
-    } catch (error: any) {
-      console.warn(`[IA] Falha ao tentar modelo ${modelName}:`, error.message);
-      lastError = error;
 
-      if (error.message?.includes('API key') || error.message?.includes('403')) {
-        throw new Error('Chave de API inválida ou sem permissão.');
-      }
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 350, // Resposta mais curta para não estourar limite
+        },
+      });
+
+      const response = await result.response;
+      return response.text();
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`[IA] Falha em ${modelName}:`, error.message?.substring(0, 50));
+
+      // Se for erro de chave, para tudo
+      if (error.message?.includes('API key')) throw new Error('Chave de API inválida.');
+
+      // Continua tentando os outros modelos da lista
+      continue;
     }
   }
-  throw lastError;
+
+  // Se todos falharem, lançamos um erro mais informativo
+  if (lastError?.message?.includes('429')) {
+    throw new Error('Cota diária/minuto excedida no Gemini. Aguarde um pouco.');
+  }
+
+  throw new Error("Sistema de IA congestionado. Tente novamente em 1 minuto.");
 }
 
 // ==========================================
@@ -658,19 +683,21 @@ export async function clearAiHistoryAction(context: string = 'GENERAL') {
 
 // --- ATUALIZADO: GERAR CONSELHO COM TONE (MELHORIA 1) ---
 export async function generateFinancialAdviceAction(tone: string = 'FRIENDLY') {
-  const userId = await getUserId()
-  if (!userId) return { success: false, error: 'Auth error' }
+  const userId = await getUserId();
+  if (!userId) return { success: false, error: 'Erro de autenticação.' };
 
   const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) return { success: false, error: 'Chave de API não configurada.' };
+  if (!apiKey) return { success: false, error: 'Chave de API não configurada no servidor.' };
 
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { partner: true }
-    })
-    if (!user) return { success: false, error: 'Usuário não encontrado.' }
+    });
 
+    if (!user) return { success: false, error: 'Usuário não encontrado.' };
+
+    // Busca transações dos últimos 30 dias para ambos os parceiros (se houver)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -680,41 +707,52 @@ export async function generateFinancialAdviceAction(tone: string = 'FRIENDLY') {
         date: { gte: thirtyDaysAgo }
       },
       orderBy: { date: 'desc' },
-      take: 50
-    })
+      take: 15 // Reduzimos de 30 para 15 transações
+    });
 
-    if (transactions.length === 0) return { success: false, error: 'Sem dados suficientes.' }
-
-    const txSummary = transactions.map(t => `- ${t.description} (${t.category}): R$ ${Number(t.amount)} [${t.type}]`).join('\n')
-
-    // Lógica de Personalidade
-    let personalityInstruction = "";
-    switch (tone) {
-      case 'STRICT': // Auditor
-        personalityInstruction = "Aja como um auditor financeiro rigoroso e sério. Seja direto, aponte erros sem rodeios e foque em corte de gastos, eficiência e compliance.";
-        break;
-      case 'COACH': // Motivacional
-        personalityInstruction = "Aja como um coach financeiro motivacional e energético. Use emojis, celebre pequenas vitórias e inspire o usuário a guardar dinheiro para o futuro com entusiasmo.";
-        break;
-      case 'POETIC': // Filósofo
-        personalityInstruction = "Responda de forma poética e filosófica, usando metáforas sobre o dinheiro, o tempo e a vida.";
-        break;
-      case 'FRIENDLY': // Padrão
-      default:
-        personalityInstruction = "Aja como um amigo conselheiro, tom leve, empático e prestativo.";
-        break;
+    if (transactions.length === 0) {
+      return { success: false, error: 'Você ainda não possui transações suficientes nos últimos 30 dias para uma análise.' };
     }
+
+    // Formatação amigável para a IA ler os valores e tipos
+    const txSummary = transactions.map(t => {
+      const typeLabel = t.type === 'EXPENSE' ? 'Gasto' : 'Receita';
+      return `- ${t.description} (${t.category}): R$ ${Number(t.amount).toFixed(2)} [${typeLabel}]`;
+    }).join('\n');
+
+    // Mapeamento de personalidade
+    const instructions = {
+      STRICT: "Aja como um auditor financeiro rigoroso e sério. Seja direto, aponte erros sem rodeios e foque em corte de gastos, eficiência e compliance.",
+      COACH: "Aja como um coach financeiro motivacional e energético. Use emojis, celebre pequenas vitórias e inspire o usuário a guardar dinheiro para o futuro com entusiasmo.",
+      POETIC: "Responda de forma poética e filosófica, usando metáforas sobre o dinheiro, o tempo e a vida.",
+      FRIENDLY: "Aja como um amigo conselheiro, tom leve, empático e prestativo."
+    };
+
+    const personalityInstruction = (instructions as any)[tone] || instructions.FRIENDLY;
 
     const prompt = `
       ${personalityInstruction}
-      Analise estas transações de um casal/pessoa:
+      
+      CONTEXTO: O usuário se chama ${user.name || 'Usuário'}.
+      DADOS FINANCEIROS (Últimos 30 dias):
       ${txSummary}
-      Meta de Gastos (Limite): R$ ${Number(user.spendingLimit)}.
-      Responda em Markdown curto. Estrutura obrigatória: "Onde foi o dinheiro", "Pontos de Atenção" e "Dica de Ouro".
+      
+      CONFIGURAÇÃO:
+      Meta de Gastos Mensal: R$ ${Number(user.spendingLimit).toFixed(2)}.
+      
+      REQUISITOS DA RESPOSTA:
+      - Use Markdown.
+      - Seja direto e objetivo (máximo 250 palavras).
+      - Estrutura obrigatória:
+        ### 📊 Onde foi o dinheiro
+        ### ⚠️ Pontos de Atenção
+        ### 💡 Dica de Ouro
     `;
 
+    // Chama a função com lógica de fallback que corrigimos anteriormente
     const adviceText = await generateSmartAdvice(apiKey, prompt);
 
+    // Salva a interação no histórico de chat
     await prisma.aiChat.create({
       data: {
         userId,
@@ -724,17 +762,26 @@ export async function generateFinancialAdviceAction(tone: string = 'FRIENDLY') {
       }
     });
 
-    // Legado
+    // Atualiza o resumo legado no perfil do usuário
     await prisma.user.update({
       where: { id: userId },
-      data: { lastAdvice: adviceText, lastAdviceDate: new Date() }
+      data: {
+        lastAdvice: adviceText,
+        lastAdviceDate: new Date()
+      }
     });
 
     revalidatePath('/dashboard');
-    return { success: true, message: adviceText }
+    return { success: true, message: adviceText };
+
   } catch (error: any) {
-    console.error("Erro na IA Geral:", error);
-    return { success: false, error: 'IA indisponível no momento.' }
+    console.error("Erro na generateFinancialAdviceAction:", error);
+
+    // Retorna a mensagem de erro específica (como "Limite de cota atingido") para o Modal
+    return {
+      success: false,
+      error: error.message || 'O serviço de análise está temporariamente indisponível.'
+    };
   }
 }
 

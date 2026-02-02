@@ -10,19 +10,41 @@ export async function getFinancialSummaryService(userId: string, month?: number,
     const userIds = [userId];
     if (user?.partnerId) userIds.push(user.partnerId);
 
-    // 1. Saldo Acumulado (Geral)
+    // 1. CÁLCULO DE SALDO REAL (Cash Flow)
+    // Agrupamos também por método de pagamento para filtrar o cartão de crédito.
     const summary = await prisma.transaction.groupBy({
-        by: ['type'],
+        by: ['type', 'paymentMethod'],
         where: { userId: { in: userIds } },
         _sum: { amount: true }
     });
 
-    const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
-    const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
-    const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
+    let totalIncome = 0;
+    let totalExpense = 0; // Saída real de dinheiro
+    let totalInvested = 0;
+
+    summary.forEach(group => {
+        const val = Number(group._sum.amount || 0);
+
+        if (group.type === 'INCOME') {
+            totalIncome += val;
+        } else if (group.type === 'EXPENSE') {
+            // LÓGICA DE CAIXA:
+            // Se for CREDIT, o dinheiro ainda não saiu da conta (é dívida).
+            // O dinheiro só sai quando houver uma transação de "Pagamento de Fatura" (que é DEBIT).
+            // Portanto, ignoramos 'CREDIT' aqui para não duplicar a subtração no saldo.
+            if (group.paymentMethod !== 'CREDIT') {
+                totalExpense += val;
+            }
+        } else if (group.type === 'INVESTMENT') {
+            totalInvested += val;
+        }
+    });
+
     const accumulatedBalance = totalIncome - totalExpense - totalInvested;
 
-    // 2. Fatura em Aberto (Mês selecionado + Atrasados)
+    // 2. CÁLCULO DE FATURAS (Dívida Aberta)
+    // Aqui somamos tudo que é Crédito e ainda não foi pago (isPaid: false)
+    // Isso mostra ao usuário quanto ele tem comprometido no cartão.
     let dateFilter = {};
     if (month !== undefined && year !== undefined) {
         const end = endOfMonth(new Date(year, month, 1));
@@ -34,7 +56,7 @@ export async function getFinancialSummaryService(userId: string, month?: number,
             userId: { in: userIds },
             type: 'EXPENSE',
             paymentMethod: 'CREDIT',
-            isPaid: false,
+            isPaid: false, // Importante: Soma apenas o que está em aberto
             ...dateFilter
         },
         _sum: { amount: true }
@@ -52,6 +74,7 @@ export async function getMonthlyComparisonService(userId: string, month: number,
     const currentDate = new Date(year, month, 1);
     const prevDate = subMonths(currentDate, 1);
 
+    // Helper para somar gastos do mês (Competência)
     const getMonthTotal = async (date: Date) => {
         const start = startOfMonth(date);
         const end = endOfMonth(date);
@@ -93,6 +116,7 @@ export async function getFinancialProjectionService(userId: string) {
     const start = new Date();
     const end = addMonths(start, 12);
 
+    // Busca despesas futuras para montar o gráfico de projeção
     const transactions = await prisma.transaction.findMany({
         where: {
             userId: { in: userIds },
@@ -116,6 +140,40 @@ export async function getFinancialProjectionService(userId: string) {
             const [mb, yb] = b.date.split('/').map(Number);
             return new Date(ya, ma - 1).getTime() - new Date(yb, mb - 1).getTime();
         });
+}
+
+// ==========================================
+// PERFORMANCE: DADOS PRONTOS PARA O FRONT
+// ==========================================
+
+export async function getDashboardStatsService(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
+    const userIds = [userId, user?.partnerId].filter(Boolean) as string[];
+
+    const start = startOfMonth(new Date());
+    const end = endOfMonth(new Date());
+
+    // Agregação por Categoria (para o gráfico de rosca)
+    // Faz o cálculo pesado no banco, não no navegador
+    const categoryStats = await prisma.transaction.groupBy({
+        by: ['category'],
+        where: {
+            userId: { in: userIds },
+            date: { gte: start, lte: end },
+            type: 'EXPENSE'
+        },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } },
+        take: 5 // Top 5 categorias
+    });
+
+    const chartData = categoryStats.map(stat => ({
+        name: stat.category,
+        value: Number(stat._sum.amount || 0),
+        fill: '#8884d8' // O front pode sobrescrever as cores se necessário
+    }));
+
+    return { chartData };
 }
 
 // ==========================================

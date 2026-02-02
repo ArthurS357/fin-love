@@ -4,8 +4,12 @@ import { addMonths } from 'date-fns';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 
-// Inferimos o tipo diretamente do schema para garantir tipagem forte
+// Inferimos o tipo diretamente do schema
 type TransactionInput = z.infer<typeof transactionSchema>;
+
+// ==========================================
+// 1. CRIAÇÃO E ATUALIZAÇÃO (CRUD)
+// ==========================================
 
 export async function createTransactionService(userId: string, data: TransactionInput) {
     const {
@@ -21,22 +25,20 @@ export async function createTransactionService(userId: string, data: Transaction
         creditCardId
     } = data;
 
-    // 1. Normalização de Data (Fuso Horário)
+    // 1. Normalização de Data
     let baseDate = new Date();
     if (date) {
         baseDate = new Date(date);
         baseDate.setUTCHours(12, 0, 0, 0);
     }
 
-    // 2. Lógica de Cartão de Crédito (Vencimento da Fatura)
+    // 2. Lógica de Cartão de Crédito
     let finalIsPaid = true;
-
     if (paymentMethod === 'CREDIT') {
         finalIsPaid = false;
         if (creditCardId) {
             const card = await prisma.creditCard.findUnique({ where: { id: creditCardId } });
             if (card) {
-                // Se o dia da compra for maior ou igual ao fechamento, joga para o próximo mês
                 if (baseDate.getDate() >= card.closingDay) {
                     baseDate = addMonths(baseDate, 1);
                     baseDate.setUTCHours(12, 0, 0, 0);
@@ -45,7 +47,7 @@ export async function createTransactionService(userId: string, data: Transaction
         }
     }
 
-    // 3. Processamento: Parcelado vs Único
+    // 3. Parcelamento vs Único
     if (type === 'EXPENSE' && paymentMethod === 'CREDIT' && installments && installments > 1) {
         const installmentId = randomUUID();
         const transactionsToCreate = [];
@@ -76,7 +78,6 @@ export async function createTransactionService(userId: string, data: Transaction
             });
         }
 
-        // Batch Insert para performance
         await prisma.transaction.createMany({ data: transactionsToCreate });
 
     } else {
@@ -96,7 +97,7 @@ export async function createTransactionService(userId: string, data: Transaction
         });
     }
 
-    // 4. Configuração de Recorrência (Se houver)
+    // 4. Recorrência
     if (isRecurring === 'true' || isRecurring === 'on') {
         let nextRun = addMonths(baseDate, 1);
         nextRun.setUTCHours(12, 0, 0, 0);
@@ -104,7 +105,6 @@ export async function createTransactionService(userId: string, data: Transaction
         if (recurringDay) {
             const d = new Date(nextRun);
             d.setDate(recurringDay);
-            // Ajuste para meses mais curtos (ex: 31/02 -> 28/02)
             if (d.getMonth() !== nextRun.getMonth()) {
                 d.setDate(0);
             }
@@ -135,7 +135,6 @@ export async function updateTransactionService(userId: string, id: string, data:
         throw new Error('Transação não encontrada ou sem permissão.');
     }
 
-    // Normalização de data se vier no payload
     let finalDate = undefined;
     if (data.date) {
         finalDate = new Date(data.date);
@@ -158,6 +157,10 @@ export async function updateTransactionService(userId: string, id: string, data:
     return { success: true };
 }
 
+// ==========================================
+// 2. EXCLUSÃO E STATUS
+// ==========================================
+
 export async function deleteTransactionService(userId: string, id: string) {
     const transaction = await prisma.transaction.findUnique({ where: { id } });
 
@@ -166,7 +169,6 @@ export async function deleteTransactionService(userId: string, id: string) {
     }
 
     await prisma.transaction.delete({ where: { id } });
-
     return { success: true };
 }
 
@@ -183,4 +185,109 @@ export async function toggleTransactionStatusService(userId: string, id: string,
         data: { isPaid: !currentStatus }
     });
     return { success: true };
+}
+
+// ==========================================
+// 3. FUNÇÕES QUE ESTAVAM FALTANDO (Bulk & CSV)
+// ==========================================
+
+export async function deleteTransactionsService(userId: string, ids: string[]) {
+    const result = await prisma.transaction.deleteMany({
+        where: {
+            id: { in: ids },
+            userId: userId
+        }
+    });
+    return result.count;
+}
+
+export async function createBulkTransactionsService(currentUserId: string, transactions: any[]) {
+    const user = await prisma.user.findUnique({
+        where: { id: currentUserId },
+        select: { partnerId: true, partner: { select: { name: true } } }
+    });
+
+    const dataToCreate = transactions.map(t => {
+        let targetUserId = currentUserId;
+        const ownerName = t.owner ? t.owner.toLowerCase().trim() : '';
+
+        // Tenta identificar se a transação é do parceiro pelo nome
+        if (user?.partnerId && user.partner?.name && ownerName.includes(user.partner.name.toLowerCase().split(' ')[0])) {
+            targetUserId = user.partnerId;
+        }
+
+        return {
+            userId: targetUserId,
+            description: t.description,
+            amount: Number(t.amount),
+            type: t.type,
+            category: t.category || 'Outros',
+            date: new Date(t.date),
+            isPaid: t.status === 'Pago',
+            paymentMethod: t.paymentMethod || 'DEBIT'
+        };
+    });
+
+    if (dataToCreate.length > 0) {
+        await prisma.transaction.createMany({ data: dataToCreate });
+    }
+
+    return { count: dataToCreate.length, partnerId: user?.partnerId };
+}
+
+export async function processCsvImportService(userId: string, candidates: any[]) {
+    // 1. Define intervalo de busca (Min e Max datas do arquivo)
+    const timestamps = candidates.map((c: any) => c.date.getTime());
+    const minDate = new Date(Math.min(...timestamps));
+    const maxDate = new Date(Math.max(...timestamps));
+
+    // Margem de segurança de 24h
+    const searchStart = new Date(minDate); searchStart.setDate(searchStart.getDate() - 1);
+    const searchEnd = new Date(maxDate); searchEnd.setDate(searchEnd.getDate() + 1);
+
+    // 2. Busca transações existentes
+    const existingTransactions = await prisma.transaction.findMany({
+        where: { userId, date: { gte: searchStart, lte: searchEnd } },
+        select: { date: true, amount: true, description: true, type: true }
+    });
+
+    // 3. Filtra duplicatas
+    const transactionsToCreate = candidates.filter((candidate: any) => {
+        const cDate = candidate.date.toISOString().split('T')[0];
+        const cAmount = Number(candidate.amount).toFixed(2);
+        const cDesc = candidate.description.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        const isDuplicate = existingTransactions.some(existing => {
+            const eDate = existing.date.toISOString().split('T')[0];
+            const eAmount = Number(existing.amount).toFixed(2);
+
+            if (eDate !== cDate || eAmount !== cAmount || existing.type !== candidate.type) return false;
+
+            const eDesc = existing.description.toLowerCase().replace(/[^a-z0-9]/g, '');
+            // Verifica similaridade na descrição
+            if (eDesc === cDesc) return true;
+            if (cDesc.length > 3 && eDesc.includes(cDesc)) return true;
+
+            return false;
+        });
+
+        return !isDuplicate;
+    });
+
+    if (transactionsToCreate.length > 0) {
+        await prisma.transaction.createMany({ data: transactionsToCreate });
+    }
+
+    return {
+        total: candidates.length,
+        imported: transactionsToCreate.length,
+        ignored: candidates.length - transactionsToCreate.length
+    };
+}
+
+export async function getSubscriptionsService(userId: string) {
+    return await prisma.recurringTransaction.findMany({
+        where: { userId, active: true },
+        orderBy: { amount: 'desc' }
+    });
 }

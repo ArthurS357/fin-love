@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { budgetDataSchema } from '@/lib/schemas';
+import { differenceInHours } from 'date-fns';
 
 // ==========================================
 // HELPER PRIVADO: Comunicação com a API
@@ -70,6 +71,16 @@ export async function generateFinancialAdviceService(userId: string, tone: strin
 
     if (!user) throw new Error('Usuário não encontrado.');
 
+    // --- CACHE INTELIGENTE ---
+    // Verifica se já existe um conselho recente (menos de 24h)
+    // Isso evita gastar cota da API se o usuário ficar recarregando a página.
+    if (user.lastAdvice && user.lastAdviceDate) {
+        const hoursSinceLast = differenceInHours(new Date(), new Date(user.lastAdviceDate));
+        if (hoursSinceLast < 24) {
+            return user.lastAdvice;
+        }
+    }
+
     // Busca dados recentes (30 dias)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -84,7 +95,8 @@ export async function generateFinancialAdviceService(userId: string, tone: strin
     });
 
     if (transactions.length === 0) {
-        throw new Error('Poucas transações recentes para gerar uma análise.');
+        // Retorna mensagem padrão sem chamar a IA se não tiver dados
+        return "Você ainda não possui transações suficientes nos últimos 30 dias para uma análise detalhada. Comece registrando seus gastos!";
     }
 
     // Prepara o Prompt
@@ -117,7 +129,7 @@ export async function generateFinancialAdviceService(userId: string, tone: strin
     // Chama a IA
     const adviceText = await callGeminiApi(prompt);
 
-    // Salva no Histórico e no Perfil
+    // Salva no Histórico e no Perfil (Atualiza cache)
     await prisma.$transaction([
         prisma.aiChat.create({
             data: { userId, role: 'model', message: adviceText, context: 'GENERAL' }

@@ -24,10 +24,10 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
-
+    
     // Chama a Server Action
     const res = await addInvestmentAction(formData);
-
+    
     setLoading(false);
 
     if (res.success) {
@@ -35,14 +35,12 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
       onSuccess();
       handleClose();
     } else {
-      // CORREÇÃO DE TIPO E LÓGICA:
-      // Verificamos se a resposta contém 'currentBalance'. Se tiver, é um erro de saldo.
-      // Usamos (res as any) para contornar o erro de tipagem estrita do TypeScript temporariamente,
-      // já que o retorno de erro do actions.ts pode variar.
-      const responseWithBalance = res as { error: string; currentBalance?: number };
+      // Verificamos se a resposta contém 'currentBalance' para identificar erro de saldo
+      // O cast "as any" é usado aqui pois a resposta de erro pode conter campos extras dinâmicos
+      const responseWithBalance = res as { success: boolean; error: string; currentBalance?: number };
 
       if (responseWithBalance.currentBalance !== undefined) {
-        // Salva os dados antes de trocar a tela do modal
+        // Salva os dados antes de trocar a tela do modal para a tela de resolução
         setPendingFormData(formData);
 
         setLowBalanceData({
@@ -65,7 +63,7 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
   const handleResolveLowBalance = async (resolution: 'DEPOSIT' | 'NO_DEBIT') => {
     if (!pendingFormData) return;
 
-    // Clona o FormData para adicionar a decisão do usuário
+    // Clona o FormData para adicionar a decisão do usuário sem mutar o original
     const newFormData = new FormData();
     for (const [key, value] of pendingFormData.entries()) {
       newFormData.append(key, value);
@@ -73,15 +71,16 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
 
     if (resolution === 'DEPOSIT') {
       // Flag para o backend criar uma transação de entrada (Aporte) antes
+      // O backend validará isso e criará a entrada necessária para cobrir o valor
       newFormData.append('autoDeposit', 'true');
     } else {
       // Flag para o backend ignorar a transação de débito (apenas registra o ativo)
-      // Definimos createTransaction como 'false' (sobrescrevendo o anterior se houver)
+      // Definimos createTransaction como 'false' (sobrescrevendo o valor anterior)
       newFormData.set('createTransaction', 'false');
     }
 
-    // Reenvia
-    setLowBalanceData(null);
+    // Limpa o estado de erro visualmente e reenvia
+    setLowBalanceData(null); 
     await handleSubmit(newFormData);
   };
 
@@ -140,7 +139,7 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
               </div>
 
               <div className="space-y-3">
-                {/* Opção 1: Aporte */}
+                {/* Opção 1: Aporte Automático */}
                 <button
                   onClick={() => handleResolveLowBalance('DEPOSIT')}
                   className="w-full group bg-gradient-to-br from-[#1f1630] to-[#130b20] hover:to-[#2d2145] border border-emerald-500/30 p-4 rounded-2xl flex items-center gap-4 transition-all hover:border-emerald-500/50 hover:shadow-[0_0_20px_rgba(16,185,129,0.1)] text-left"
@@ -150,11 +149,11 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
                   </div>
                   <div>
                     <span className="block text-white font-bold text-sm">Transferi de outra conta</span>
-                    <span className="block text-gray-500 text-xs mt-0.5">O sistema criará um "Aporte" e depois o investimento.</span>
+                    <span className="block text-gray-500 text-xs mt-0.5">O sistema criará um "Aporte" automático.</span>
                   </div>
                 </button>
 
-                {/* Opção 2: Apenas Registrar */}
+                {/* Opção 2: Apenas Registrar (Sem Débito) */}
                 <button
                   onClick={() => handleResolveLowBalance('NO_DEBIT')}
                   className="w-full group bg-gradient-to-br from-[#1f1630] to-[#130b20] hover:to-[#2d2145] border border-white/10 p-4 rounded-2xl flex items-center gap-4 transition-all hover:border-white/30 text-left"
@@ -164,7 +163,7 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
                   </div>
                   <div>
                     <span className="block text-white font-bold text-sm">Já estava investido / Externo</span>
-                    <span className="block text-gray-500 text-xs mt-0.5">Apenas registrar o ativo, sem mexer no saldo da conta.</span>
+                    <span className="block text-gray-500 text-xs mt-0.5">Apenas registrar o ativo, sem mexer no saldo.</span>
                   </div>
                 </button>
               </div>

@@ -1,9 +1,17 @@
 import { z } from 'zod';
 
+// Helper para tratar booleanos vindos de FormData (ex: checkbox html)
+// Aceita: true, false, "true", "false", "on"
+const booleanString = z.preprocess((val) => {
+  if (typeof val === 'string') {
+    return val === 'true' || val === 'on';
+  }
+  return Boolean(val);
+}, z.boolean());
+
 // ==========================================
 // AUTH SCHEMAS
 // ==========================================
-
 
 export const registerSchema = z.object({
   name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
@@ -46,7 +54,7 @@ export const transactionSchema = z.object({
   installments: z.coerce.number().optional().default(1),
   isRecurring: z.string().optional(),
   recurringDay: z.coerce.number().min(1).max(31).optional(),
-  creditCardId: z.string().optional(), 
+  creditCardId: z.string().optional(),
   isPaid: z.coerce.boolean().optional(),
 });
 
@@ -90,9 +98,13 @@ export const budgetDataSchema = z.object({
   variableExpenses: z.array(budgetItemSchema),
 });
 
-// --- TIPOS EXPORTADOS (Correção aqui) ---
-export type BudgetItem = z.infer<typeof budgetItemSchema>; // Adicionado
+// --- TIPOS EXPORTADOS ---
+export type BudgetItem = z.infer<typeof budgetItemSchema>;
 export type BudgetData = z.infer<typeof budgetDataSchema>;
+
+// ==========================================
+// INVESTMENT SCHEMAS
+// ==========================================
 
 export const investmentSchema = z.object({
   name: z.string().min(2, 'Nome muito curto'),
@@ -100,8 +112,10 @@ export const investmentSchema = z.object({
   investedAmount: z.coerce.number().min(0.01, 'Valor inválido'),
   currentAmount: z.coerce.number().min(0, 'Valor inválido').optional(), // Se não preencher, assume igual ao investido
   date: z.string().optional(), // Para registro
-  createTransaction: z.string().optional(), // Checkbox "Debitar do saldo?" (vem como string do form)
-  autoDeposit: z.string().optional() // Checkbox "Realizar aporte" (vem como string do form)
+
+  // CORREÇÃO: Uso do helper booleanString para maior segurança com formulários
+  createTransaction: booleanString.optional(),
+  autoDeposit: booleanString.optional()
 });
 
 export type InvestmentData = z.infer<typeof investmentSchema>;

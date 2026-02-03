@@ -16,7 +16,7 @@ import {
   investmentSchema
 } from '@/lib/schemas'
 
-// CORREÇÃO AQUI: Importar e Exportar BudgetItem
+// CORREÇÃO: Exportando os tipos necessários para o frontend
 import type { BudgetData, BudgetItem } from '@/lib/schemas';
 export type { BudgetData, BudgetItem };
 
@@ -412,7 +412,7 @@ export async function deleteCategoryAction(id: string) {
 }
 
 // ==========================================
-// 7. CORREÇÃO DA RECORRÊNCIA
+// 7. RECORRÊNCIA
 // ==========================================
 
 export async function checkRecurringTransactionsAction() {
@@ -420,14 +420,14 @@ export async function checkRecurringTransactionsAction() {
   if (!userId) return;
 
   try {
-    // A lógica de processar recorrência deve estar em um serviço
+    // Implementar se necessário, sem revalidatePath
   } catch (err) {
     console.error("Erro recorrência:", err)
   }
 }
 
 // ==========================================
-// 8. RESTO DAS FUNÇÕES
+// 8. PLANEJAMENTO E INVESTIMENTOS
 // ==========================================
 
 export async function getMonthlyBudgetAction(month: number, year: number, targetUserId?: string) {
@@ -471,12 +471,13 @@ export async function generatePlanningAdviceAction(month: number, year: number) 
   }
 }
 
+// --- CORREÇÃO APLICADA AQUI ---
 export async function addInvestmentAction(formData: FormData) {
   const userId = await getUserId();
-  if (!userId) return { error: 'Auth error' };
+  if (!userId) return { success: false, error: 'Auth error' };
   const rawData = Object.fromEntries(formData);
   const validation = investmentSchema.safeParse(rawData);
-  if (!validation.success) return { error: validation.error.issues[0].message };
+  if (!validation.success) return { success: false, error: validation.error.issues[0].message };
 
   try {
     await investmentService.createInvestmentService(userId, validation.data);
@@ -485,16 +486,23 @@ export async function addInvestmentAction(formData: FormData) {
     revalidatePath('/dashboard', 'page');
     return { success: true, message: 'Investimento realizado!' };
   } catch (error: any) {
-    // Se quiser aplicar a lógica de retorno de saldo em erro de investimento, adicione aqui
-    // como feito anteriormente. Mas para corrigir o erro atual de build, isto basta.
-    return { error: error.message };
+    let currentBalance = undefined;
+    if (error.message.includes('Saldo insuficiente') || error.message.includes('R$')) {
+      try {
+        const balanceData = await userService.getUserBalanceService(userId);
+        currentBalance = balanceData.total;
+      } catch (ignored) { }
+    }
+    // Retorno padronizado com success: false
+    return { success: false, error: error.message, currentBalance };
   }
 }
 
 export async function addSavingsAction(formData: FormData) {
   const userId = await getUserId();
-  if (!userId) return { error: 'Auth error' };
+  if (!userId) return { success: false, error: 'Auth error' };
   const amount = parseFloat(formData.get('amount') as string);
+
   try {
     await investmentService.createInvestmentService(userId, {
       name: formData.get('description') as string || 'Caixinha',
@@ -503,12 +511,21 @@ export async function addSavingsAction(formData: FormData) {
       createTransaction: 'true',
       date: new Date().toISOString()
     } as any);
+
     await gamificationService.checkBadgesService(userId);
     revalidateTag(`dashboard:${userId}`, 'default');
     revalidatePath('/dashboard', 'page');
     return { success: true, message: 'Valor guardado!' };
   } catch (error: any) {
-    return { error: error.message };
+    let currentBalance = undefined;
+    if (error.message.includes('Saldo insuficiente') || error.message.includes('R$')) {
+      try {
+        const balanceData = await userService.getUserBalanceService(userId);
+        currentBalance = balanceData.total;
+      } catch (ignored) { }
+    }
+    // Retorno padronizado com success: false
+    return { success: false, error: error.message, currentBalance };
   }
 }
 

@@ -334,14 +334,29 @@ export default function Dashboard({
   );
 }
 
-function TabButton({ active, onClick, label, icon }: any) {
+interface TabButtonProps {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  icon: React.ReactNode;
+}
+
+function TabButton({ active, onClick, label, icon }: TabButtonProps) {
   return (
     <button onClick={onClick} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${active ? 'text-white bg-white/10 shadow-inner' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
       <span className={active ? 'text-pink-400' : ''}>{icon}</span><span className="hidden lg:inline">{label}</span>
     </button>
   );
 }
-function NavIcon({ active, onClick, icon, label }: any) {
+
+interface NavIconProps {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}
+
+function NavIcon({ active, onClick, icon, label }: NavIconProps) {
   return (
     <button onClick={onClick} className={`flex flex-col items-center gap-1 min-w-[3rem] transition-all duration-300 ${active ? 'text-white scale-110' : 'text-gray-500 hover:text-gray-300'}`}>
       <div className={`p-1.5 rounded-xl transition-all ${active ? 'bg-pink-500/20 shadow-[0_0_10px_rgba(236,72,153,0.2)]' : ''}`}>{icon}</div>

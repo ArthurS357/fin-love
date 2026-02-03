@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 
 type InvestmentInput = z.infer<typeof investmentSchema>;
 
-// Função auxiliar para evitar erros de ponto flutuante (arredonda 2 casas)
+// Função auxiliar para evitar erros de ponto flutuante
 const safeMath = (value: number) => {
     return Math.round((value + Number.EPSILON) * 100) / 100;
 };
@@ -25,7 +25,6 @@ export async function getInvestmentsService(userId: string) {
         orderBy: { currentAmount: 'desc' }
     });
 
-    // Tipagem estrita para evitar 'any'
     let partnerInvestments: Prisma.InvestmentGetPayload<null>[] = [];
 
     if (user?.partnerId) {
@@ -39,10 +38,11 @@ export async function getInvestmentsService(userId: string) {
 }
 
 // ==========================================
-// SERVIÇOS DE ESCRITA (CRÍTICO)
+// SERVIÇOS DE ESCRITA
 // ==========================================
 
 export async function createInvestmentService(userId: string, data: InvestmentInput) {
+    // O Zod já converteu createTransaction e autoDeposit para booleanos
     const { name, category, investedAmount, createTransaction, date, autoDeposit } = data;
     const currentAmount = data.currentAmount || investedAmount;
 
@@ -51,13 +51,10 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
 
     let transactionId: string | null = null;
 
-    // Normaliza a verificação do checkbox/boolean
-    const shouldCreateTransaction = String(createTransaction) === 'true' || createTransaction === 'on';
+    // CORREÇÃO: Como o schema já garante boolean, basta verificar se é true
+    if (createTransaction) {
 
-    // 1. LÓGICA DE TRANSAÇÃO (Débito e Aporte)
-    if (shouldCreateTransaction) {
-
-        // Busca saldo atual (Conta Corrente)
+        // Busca saldo atual
         const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
         const userIds = [userId];
         if (user?.partnerId) userIds.push(user.partnerId);
@@ -68,7 +65,6 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
             _sum: { amount: true }
         });
 
-        // Converte Decimal para Number com segurança
         const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
         const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
         const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
@@ -78,14 +74,12 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
         // Se o investimento for maior que o saldo
         if (investedAmount > currentBalance) {
 
-            // Se NÃO autorizou aporte, bloqueia
-            const shouldAutoDeposit = String(autoDeposit) === 'true' || autoDeposit === 'on';
-
-            if (!shouldAutoDeposit) {
+            // CORREÇÃO: Verificação direta do booleano
+            if (!autoDeposit) {
                 throw new Error(`Saldo insuficiente (R$ ${currentBalance.toFixed(2)}). Ative o 'Aporte Automático' para completar.`);
             }
 
-            // Se autorizou, cria o aporte da diferença (Gap)
+            // Aporte da diferença
             const balanceToConsider = currentBalance > 0 ? currentBalance : 0;
             const gap = safeMath(investedAmount - balanceToConsider);
 
@@ -120,7 +114,7 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
         transactionId = transaction.id;
     }
 
-    // 2. Cria o registro de Patrimônio
+    // Cria o registro de Patrimônio
     await prisma.investment.create({
         data: {
             userId,
@@ -142,19 +136,15 @@ export async function redeemInvestmentService(userId: string, id: string, amount
         throw new Error('Investimento não encontrado ou sem permissão.');
     }
 
-    // Comparação segura
     if (amount > investment.currentAmount) {
         throw new Error('Valor de resgate maior que o saldo atual do ativo.');
     }
 
-    // 1. Reduz o saldo do Ativo
-    // Nota: Como 'currentAmount' é Float, o decremento via Prisma é seguro atomicamente
     await prisma.investment.update({
         where: { id },
         data: { currentAmount: { decrement: amount } }
     });
 
-    // 2. Credita na Conta Corrente
     await prisma.transaction.create({
         data: {
             userId,
@@ -192,21 +182,17 @@ export async function deleteInvestmentService(userId: string, id: string) {
         throw new Error('Investimento não encontrado.');
     }
 
-    // 1. Remove o registro do Ativo
     await prisma.investment.delete({ where: { id } });
 
-    // 2. LIMPEZA INTELIGENTE (Estorno)
     if (investment.originTransactionId) {
         const debitTransaction = await prisma.transaction.findUnique({
             where: { id: investment.originTransactionId }
         });
 
         if (debitTransaction) {
-            // Remove a saída
             await prisma.transaction.delete({ where: { id: investment.originTransactionId } });
 
-            // Remove o Aporte Automático associado (heurística de tempo e nome)
-            const timeWindow = 5000; // 5 segundos
+            const timeWindow = 5000;
             const minDate = new Date(debitTransaction.createdAt.getTime() - timeWindow);
             const maxDate = new Date(debitTransaction.createdAt.getTime() + timeWindow);
 

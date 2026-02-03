@@ -31,6 +31,14 @@ export interface Transaction {
   creditCardId?: string | null;
 }
 
+export interface CreditCardData {
+  id: string;
+  name: string;
+  limit: number;
+  closingDay: number;
+  dueDay: number;
+}
+
 interface DashboardProps {
   initialTransactions: Transaction[];
   userName: string;
@@ -39,9 +47,9 @@ interface DashboardProps {
   spendingLimit: number;
   totalSavings: number;
   savingsGoalName: string;
-  accumulatedBalance: number;
+  accumulatedBalance: number; // Saldo Global vindo do Server
   selectedDate: { month: number; year: number; };
-  creditCards: any[];
+  creditCards: CreditCardData[];
   totalCreditOpen: number;
 }
 
@@ -120,7 +128,7 @@ export default function Dashboard({
     router.push(`${pathname}?${params.toString()}`);
   };
 
-  // --- DADOS ---
+  // --- DADOS E ESTADO ---
   const normalizedTransactions = useMemo(() => {
     return initialTransactions.map(t => ({
       ...t,
@@ -139,39 +147,42 @@ export default function Dashboard({
 
   const partnerId = partner?.id;
 
-  // --- CÁLCULO DE ESTATÍSTICAS (ATUALIZADO) ---
-  const calculateStats = (txs: Transaction[]) => {
-    // 1. Gráficos de Consumo (Informativo - Apenas Gastos e Entradas)
+  // --- CÁLCULO DE ESTATÍSTICAS ---
+  // Função pura para somar os valores
+  const calculateFlow = useCallback((txs: Transaction[]) => {
+    // 1. Fluxo de Caixa MENSAL (Entradas e Saídas do mês selecionado)
     const income = txs.filter(t => t.type === 'INCOME').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
     const expense = txs.filter(t => t.type === 'EXPENSE').reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
-    // 2. Saldo Real (Caixa): Considera APENAS O QUE FOI PAGO
-    // Inclui Entradas, Saídas e *Investimentos*
-    const paidIncome = txs
-      .filter(t => t.type === 'INCOME' && t.isPaid)
-      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+    // 2. Saldo Calculado (Apenas para referência interna, será sobrescrito pelo Global)
+    const paidIncome = txs.filter(t => t.type === 'INCOME' && t.isPaid).reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+    const paidExpense = txs.filter(t => t.type === 'EXPENSE' && t.isPaid).reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+    const paidInvestments = txs.filter(t => t.type === 'INVESTMENT' && t.isPaid).reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
 
-    const paidExpense = txs
-      .filter(t => t.type === 'EXPENSE' && t.isPaid)
-      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+    const calculatedBalance = fromCents(toCents(paidIncome) - toCents(paidExpense) - toCents(paidInvestments));
 
-    // CORREÇÃO: Calculamos o total investido pago para subtrair do saldo
-    const paidInvestments = txs
-      .filter(t => t.type === 'INVESTMENT' && t.isPaid)
-      .reduce((acc, t) => safeAdd(acc, Number(t.amount)), 0);
+    return { income, expense, balance: calculatedBalance };
+  }, []);
 
-    // Saldo = Entradas - Saídas - Investimentos
-    // Assim, o dinheiro que foi para investimento sai da conta corrente da Home.
-    const balance = fromCents(toCents(paidIncome) - toCents(paidExpense) - toCents(paidInvestments));
+  const myTransactions = useMemo(() => monthlyTransactions.filter(t => !partnerId || t.userId !== partnerId), [monthlyTransactions, partnerId]);
+  const partnerTransactions = useMemo(() => monthlyTransactions.filter(t => partnerId && t.userId === partnerId), [monthlyTransactions, partnerId]);
 
-    return { income, expense, balance };
-  };
+  // CORREÇÃO CRÍTICA: O Saldo não pode ser o do mês. Deve ser o acumulado global.
+  const myStats = useMemo(() => {
+    const stats = calculateFlow(myTransactions);
+    // Sobrescreve o saldo calculado do mês pelo SALDO GLOBAL vindo do banco
+    // Isso impede que o saldo "zere" ao virar o mês
+    return { ...stats, balance: accumulatedBalance };
+  }, [calculateFlow, myTransactions, accumulatedBalance]);
 
-  const myTransactions = monthlyTransactions.filter(t => !partnerId || t.userId !== partnerId);
-  const partnerTransactions = monthlyTransactions.filter(t => partnerId && t.userId === partnerId);
-  const myStats = calculateStats(myTransactions);
-  const partnerStats = calculateStats(partnerTransactions);
+  const partnerStats = useMemo(() => {
+    return calculateFlow(partnerTransactions);
+    // Nota: Se tivéssemos o saldo global do parceiro vindo nas props, usaríamos aqui.
+    // Por enquanto, mostra o fluxo do mês ou saldo calculado do período.
+  }, [calculateFlow, partnerTransactions]);
 
+
+  // --- HANDLERS ---
   const handleOpenNew = () => { setEditingTransaction(null); setIsModalOpen(true); };
   const handleEdit = (t: Transaction) => { setEditingTransaction(t); setIsModalOpen(true); };
   const handleDelete = async (id: string) => {
@@ -287,6 +298,7 @@ export default function Dashboard({
               partnerId={partnerId}
               totalCreditOpen={totalCreditOpen}
               creditCards={creditCards}
+              spendingLimit={spendingLimit}
             />
           )}
           {activeTab === 'goals' && <GoalsTab income={myStats.income + partnerStats.income} expense={myStats.expense + partnerStats.expense} transactions={monthlyTransactions} currentLimit={spendingLimit} privacyMode={privacyMode} />}

@@ -3,6 +3,41 @@ import { spendingLimitSchema, partnerSchema } from '@/lib/schemas';
 import { z } from 'zod';
 
 // ==========================================
+// SALDO E CONTEXTO FINANCEIRO (NOVO)
+// ==========================================
+
+export async function getUserBalanceService(userId: string) {
+    // 1. Identifica se é conta conjunta
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { partnerId: true }
+    });
+
+    const userIds = [userId];
+    if (user?.partnerId) userIds.push(user.partnerId);
+
+    // 2. Agrupa valores por tipo (apenas pagos)
+    const summary = await prisma.transaction.groupBy({
+        by: ['type'],
+        where: {
+            userId: { in: userIds },
+            isPaid: true
+        },
+        _sum: { amount: true }
+    });
+
+    // 3. Converte e calcula
+    const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
+    const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
+    const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
+
+    // Saldo disponível
+    const total = totalIncome - totalExpense - totalInvested;
+
+    return { total, totalIncome, totalExpense, totalInvested };
+}
+
+// ==========================================
 // GESTÃO DE PERFIL
 // ==========================================
 

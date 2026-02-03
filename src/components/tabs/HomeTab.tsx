@@ -92,13 +92,21 @@ export default function HomeTab({
 
   useEffect(() => {
     async function fetchData() {
-      const [compRes, projData] = await Promise.all([
-        getMonthlyComparisonAction(month, year),
-        getFinancialProjectionAction()
-      ]);
+      try {
+        const [compRes, projData] = await Promise.all([
+          getMonthlyComparisonAction(month, year),
+          getFinancialProjectionAction()
+        ]);
 
-      if (compRes.success && compRes.data) setComparison(compRes.data);
-      if (projData) setProjectionData(projData);
+        // Verificação segura de tipos
+        if (compRes && 'success' in compRes && compRes.success && compRes.data) {
+          setComparison(compRes.data);
+        }
+
+        if (projData) setProjectionData(projData);
+      } catch (error) {
+        console.error("Erro ao carregar dados do dashboard:", error);
+      }
     }
     fetchData();
   }, [month, year]);
@@ -129,14 +137,20 @@ export default function HomeTab({
     }
 
     setIsPaying(true);
-    const res = await payCreditCardBillAction(cardIdToPay as string, month, year);
+    try {
+      const res = await payCreditCardBillAction(cardIdToPay as string, month, year);
 
-    if (res.success) {
-      toast.success(res.message);
-    } else {
-      toast.error(res.error || "Erro ao pagar fatura.");
+      // CORREÇÃO DO TYPESCRIPT: Type Narrowing para lidar com Union Types
+      if ('error' in res && res.error) {
+        toast.error(res.error || "Erro ao pagar fatura.");
+      } else if ('success' in res && res.success) {
+        toast.success(res.message);
+      }
+    } catch (err) {
+      toast.error("Erro inesperado ao processar pagamento.");
+    } finally {
+      setIsPaying(false);
     }
-    setIsPaying(false);
   };
 
   const handlePrintReport = () => {

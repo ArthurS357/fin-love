@@ -16,8 +16,9 @@ import {
   investmentSchema
 } from '@/lib/schemas'
 
-import type { BudgetData } from '@/lib/schemas';
-export type { BudgetData };
+// CORREÇÃO AQUI: Importar e Exportar BudgetItem
+import type { BudgetData, BudgetItem } from '@/lib/schemas';
+export type { BudgetData, BudgetItem };
 
 // --- SERVICES ---
 import * as authService from '@/services/authService';
@@ -213,7 +214,7 @@ export async function exportTransactionsCsvAction(month: number, year: number) {
 }
 
 // ==========================================
-// 4. PARCEIRO & PERFIL (AQUI ESTÁ A CORREÇÃO DE EXPORTAÇÃO)
+// 4. PARCEIRO & PERFIL
 // ==========================================
 
 export async function linkPartnerAction(formData: FormData) {
@@ -248,7 +249,6 @@ export async function unlinkPartnerAction() {
   }
 }
 
-// --- ESTA FUNÇÃO ESTAVA CAUSANDO O ERRO NO PROFILETAB ---
 export async function updateProfileNameAction(formData: FormData) {
   const userId = await getUserId();
   if (!userId) return { error: 'Auth error' };
@@ -412,25 +412,18 @@ export async function deleteCategoryAction(id: string) {
 }
 
 // ==========================================
-// 7. CORREÇÃO DA RECORRÊNCIA (SEM REVALIDATE)
+// 7. CORREÇÃO DA RECORRÊNCIA
 // ==========================================
 
 export async function checkRecurringTransactionsAction() {
   const userId = await getUserId();
   if (!userId) return;
 
-  // CORREÇÃO: Removemos revalidatePath daqui. 
-  // Esta função é chamada no render do Dashboard. Ela processa o banco,
-  // mas não deve disparar cache purge durante o render.
   try {
-    // A lógica de processar recorrência deve estar em um serviço que apenas executa se necessário
-    // Por enquanto, apenas retornamos vazio ou chamamos um serviço "quieto"
-    // Se você tiver a lógica de processamento aqui, mantenha-a, MAS REMOVA O revalidatePath
+    // A lógica de processar recorrência deve estar em um serviço
   } catch (err) {
     console.error("Erro recorrência:", err)
   }
-
-  // NENHUM revalidatePath AQUI
 }
 
 // ==========================================
@@ -492,6 +485,8 @@ export async function addInvestmentAction(formData: FormData) {
     revalidatePath('/dashboard', 'page');
     return { success: true, message: 'Investimento realizado!' };
   } catch (error: any) {
+    // Se quiser aplicar a lógica de retorno de saldo em erro de investimento, adicione aqui
+    // como feito anteriormente. Mas para corrigir o erro atual de build, isto basta.
     return { error: error.message };
   }
 }

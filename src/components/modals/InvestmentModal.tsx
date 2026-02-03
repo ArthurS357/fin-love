@@ -4,7 +4,6 @@ import { useState, useRef } from 'react';
 import { X, Save, TrendingUp, Calendar, AlertTriangle, ArrowDownCircle, Wallet, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { addInvestmentAction } from '@/app/actions';
-import { formatCurrency } from '@/lib/utils';
 
 interface InvestmentModalProps {
   isOpen: boolean;
@@ -16,7 +15,7 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
   const [loading, setLoading] = useState(false);
   const [lowBalanceData, setLowBalanceData] = useState<{ message: string, currentBalance: number } | null>(null);
 
-  // CORREÇÃO: Estado para persistir os dados quando o formulário sumir da tela
+  // Estado para persistir os dados quando o formulário sumir da tela (fluxo de decisão)
   const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
 
   const formRef = useRef<HTMLFormElement>(null);
@@ -25,25 +24,35 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
 
   async function handleSubmit(formData: FormData) {
     setLoading(true);
-    // Não limpamos lowBalanceData aqui imediatamente para evitar flickers se for reenvio
 
+    // Chama a Server Action
     const res = await addInvestmentAction(formData);
+
     setLoading(false);
 
     if (res.success) {
       toast.success(res.message);
       onSuccess();
       handleClose();
-    } else if (res.error === 'LOW_BALANCE') {
-      // CORREÇÃO: Salva os dados antes de desmontar o form
-      setPendingFormData(formData);
-
-      setLowBalanceData({
-        message: res.message || 'Saldo insuficiente.',
-        currentBalance: res.currentBalance || 0
-      });
     } else {
-      toast.error(res.error || "Erro ao salvar.");
+      // CORREÇÃO DE TIPO E LÓGICA:
+      // Verificamos se a resposta contém 'currentBalance'. Se tiver, é um erro de saldo.
+      // Usamos (res as any) para contornar o erro de tipagem estrita do TypeScript temporariamente,
+      // já que o retorno de erro do actions.ts pode variar.
+      const responseWithBalance = res as { error: string; currentBalance?: number };
+
+      if (responseWithBalance.currentBalance !== undefined) {
+        // Salva os dados antes de trocar a tela do modal
+        setPendingFormData(formData);
+
+        setLowBalanceData({
+          message: responseWithBalance.error || 'Saldo insuficiente na conta.',
+          currentBalance: responseWithBalance.currentBalance
+        });
+      } else {
+        // Erro genérico
+        toast.error(res.error || "Erro ao salvar investimento.");
+      }
     }
   }
 
@@ -54,24 +63,25 @@ export default function InvestmentModal({ isOpen, onClose, onSuccess }: Investme
   };
 
   const handleResolveLowBalance = async (resolution: 'DEPOSIT' | 'NO_DEBIT') => {
-    // CORREÇÃO: Usa os dados salvos no estado, pois o formRef é null agora
     if (!pendingFormData) return;
 
-    // Clona o FormData para não alterar o original diretamente
+    // Clona o FormData para adicionar a decisão do usuário
     const newFormData = new FormData();
     for (const [key, value] of pendingFormData.entries()) {
       newFormData.append(key, value);
     }
 
     if (resolution === 'DEPOSIT') {
+      // Flag para o backend criar uma transação de entrada (Aporte) antes
       newFormData.append('autoDeposit', 'true');
     } else {
-      // Remove a opção de debitar, apenas registra
+      // Flag para o backend ignorar a transação de débito (apenas registra o ativo)
+      // Definimos createTransaction como 'false' (sobrescrevendo o anterior se houver)
       newFormData.set('createTransaction', 'false');
     }
 
-    // Reenvia com a flag de resolução
-    setLowBalanceData(null); // Limpa o erro visualmente enquanto carrega
+    // Reenvia
+    setLowBalanceData(null);
     await handleSubmit(newFormData);
   };
 

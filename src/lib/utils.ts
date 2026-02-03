@@ -16,7 +16,7 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function formatCurrency(value: number | string): string {
   const numberValue = Number(value);
-  
+
   if (isNaN(numberValue)) return "R$ 0,00";
 
   return new Intl.NumberFormat("pt-BR", {
@@ -33,4 +33,13 @@ export function formatDate(date: Date | string): string {
   if (!date) return "--/--/----";
   const d = new Date(date);
   return new Intl.DateTimeFormat("pt-BR").format(d);
+}
+
+/**
+ * Corrige imprecisões de ponto flutuante em JavaScript (ex: 0.1 + 0.2 = 0.3000004)
+ * Essencial para cálculos financeiros quando o banco usa Float.
+ * Arredonda para 2 casas decimais.
+ */
+export function safeMath(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

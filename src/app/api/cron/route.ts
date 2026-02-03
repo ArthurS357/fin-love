@@ -20,60 +20,77 @@ export async function GET(request: Request) {
     // BLOCO A: VERIFICAÇÃO DE FATURAS (Hoje e Amanhã)
     // ====================================================
 
-    // Função auxiliar para processar faturas e evitar duplicação de código
-    const processInvoice = async (card: any, label: string, dateReference: Date) => {
-      // Soma gastos pendentes deste cartão (apenas despesas não pagas)
-      const invoiceTotal = await prisma.transaction.aggregate({
-        where: {
-          creditCardId: card.id,
-          isPaid: false,
-          type: 'EXPENSE'
-        },
-        _sum: { amount: true }
-      });
-
-      const total = Number(invoiceTotal._sum.amount || 0);
-
-      // Se houver fatura em aberto, adiciona à notificação
-      if (total > 0 && card.user.email) {
-        if (!notificationsMap[card.user.email]) {
-          notificationsMap[card.user.email] = {
-            name: card.user.name || 'Usuário',
-            items: []
-          };
-        }
-
-        notificationsMap[card.user.email].items.push({
-          description: `💳 Fatura ${card.name} (${label})`,
-          amount: total,
-          date: dateReference
-        });
-      }
-    };
-
-    // --- A.1: Vence HOJE ---
     const todayDay = now.getDate();
-    const cardsDueToday = await prisma.creditCard.findMany({
-      where: { dueDay: todayDay },
-      include: { user: { select: { email: true, name: true } } }
-    });
-
-    for (const card of cardsDueToday) {
-      await processInvoice(card, 'Vence Hoje', now);
-    }
-
-    // --- A.2: Vence AMANHÃ (Novo) ---
     const tomorrow = addDays(now, 1);
     const tomorrowDay = tomorrow.getDate();
 
-    const cardsDueTomorrow = await prisma.creditCard.findMany({
-      where: { dueDay: tomorrowDay },
-      include: { user: { select: { email: true, name: true } } }
-    });
+    // 1. Busca todos os cartões que vencem hoje ou amanhã
+    const [cardsDueToday, cardsDueTomorrow] = await Promise.all([
+      prisma.creditCard.findMany({
+        where: { dueDay: todayDay },
+        include: { user: { select: { email: true, name: true } } }
+      }),
+      prisma.creditCard.findMany({
+        where: { dueDay: tomorrowDay },
+        include: { user: { select: { email: true, name: true } } }
+      })
+    ]);
 
-    for (const card of cardsDueTomorrow) {
-      await processInvoice(card, 'Vence Amanhã', tomorrow);
+    // 2. Coleta IDs de todos os cartões envolvidos para fazer UMA única consulta
+    const allCardIds = [
+      ...cardsDueToday.map(c => c.id),
+      ...cardsDueTomorrow.map(c => c.id)
+    ];
+
+    // 3. Busca transações pendentes de TODOS os cartões de uma vez (Otimização N+1)
+    let pendingTransactions: { creditCardId: string | null; amount: any }[] = [];
+
+    if (allCardIds.length > 0) {
+      pendingTransactions = await prisma.transaction.findMany({
+        where: {
+          creditCardId: { in: allCardIds },
+          isPaid: false,
+          type: 'EXPENSE'
+        },
+        select: {
+          creditCardId: true,
+          amount: true
+        }
+      });
     }
+
+    // 4. Função auxiliar para somar em memória (sem ir ao banco)
+    const processCardsInMemory = (cards: typeof cardsDueToday, label: string, dateReference: Date) => {
+      for (const card of cards) {
+        // Filtra na lista em memória
+        const cardExpenses = pendingTransactions.filter(t => t.creditCardId === card.id);
+
+        // Soma os valores
+        const total = cardExpenses.reduce((acc, t) => acc + Number(t.amount), 0);
+
+        if (total > 0 && card.user.email) {
+          if (!notificationsMap[card.user.email]) {
+            notificationsMap[card.user.email] = {
+              name: card.user.name || 'Usuário',
+              items: []
+            };
+          }
+
+          notificationsMap[card.user.email].items.push({
+            description: `💳 Fatura ${card.name} (${label})`,
+            amount: total,
+            date: dateReference
+          });
+        }
+      }
+    };
+
+    // Processa Hoje
+    processCardsInMemory(cardsDueToday, 'Vence Hoje', now);
+
+    // Processa Amanhã
+    processCardsInMemory(cardsDueTomorrow, 'Vence Amanhã', tomorrow);
+
 
     // ====================================================
     // BLOCO B: CONTAS RECORRENTES (Próximos 7 Dias)

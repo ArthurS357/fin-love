@@ -1,8 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import { investmentSchema } from '@/lib/schemas';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 
 type InvestmentInput = z.infer<typeof investmentSchema>;
+
+// Função auxiliar para evitar erros de ponto flutuante (arredonda 2 casas)
+const safeMath = (value: number) => {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+};
 
 // ==========================================
 // SERVIÇOS DE LEITURA
@@ -19,7 +25,9 @@ export async function getInvestmentsService(userId: string) {
         orderBy: { currentAmount: 'desc' }
     });
 
-    let partnerInvestments: any[] = [];
+    // Tipagem estrita para evitar 'any'
+    let partnerInvestments: Prisma.InvestmentGetPayload<null>[] = [];
+
     if (user?.partnerId) {
         partnerInvestments = await prisma.investment.findMany({
             where: { userId: user.partnerId },
@@ -43,8 +51,11 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
 
     let transactionId: string | null = null;
 
+    // Normaliza a verificação do checkbox/boolean
+    const shouldCreateTransaction = String(createTransaction) === 'true' || createTransaction === 'on';
+
     // 1. LÓGICA DE TRANSAÇÃO (Débito e Aporte)
-    if (createTransaction === 'on' || createTransaction === 'true') {
+    if (shouldCreateTransaction) {
 
         // Busca saldo atual (Conta Corrente)
         const user = await prisma.user.findUnique({ where: { id: userId }, select: { partnerId: true } });
@@ -57,23 +68,26 @@ export async function createInvestmentService(userId: string, data: InvestmentIn
             _sum: { amount: true }
         });
 
+        // Converte Decimal para Number com segurança
         const totalIncome = Number(summary.find(s => s.type === 'INCOME')?._sum.amount || 0);
         const totalExpense = Number(summary.find(s => s.type === 'EXPENSE')?._sum.amount || 0);
         const totalInvested = Number(summary.find(s => s.type === 'INVESTMENT')?._sum.amount || 0);
 
-        const currentBalance = totalIncome - totalExpense - totalInvested;
+        const currentBalance = safeMath(totalIncome - totalExpense - totalInvested);
 
         // Se o investimento for maior que o saldo
         if (investedAmount > currentBalance) {
 
             // Se NÃO autorizou aporte, bloqueia
-            if (!autoDeposit || autoDeposit !== 'true') {
+            const shouldAutoDeposit = String(autoDeposit) === 'true' || autoDeposit === 'on';
+
+            if (!shouldAutoDeposit) {
                 throw new Error(`Saldo insuficiente (R$ ${currentBalance.toFixed(2)}). Ative o 'Aporte Automático' para completar.`);
             }
 
             // Se autorizou, cria o aporte da diferença (Gap)
             const balanceToConsider = currentBalance > 0 ? currentBalance : 0;
-            const gap = investedAmount - balanceToConsider;
+            const gap = safeMath(investedAmount - balanceToConsider);
 
             if (gap > 0) {
                 await prisma.transaction.create({
@@ -128,11 +142,13 @@ export async function redeemInvestmentService(userId: string, id: string, amount
         throw new Error('Investimento não encontrado ou sem permissão.');
     }
 
+    // Comparação segura
     if (amount > investment.currentAmount) {
         throw new Error('Valor de resgate maior que o saldo atual do ativo.');
     }
 
     // 1. Reduz o saldo do Ativo
+    // Nota: Como 'currentAmount' é Float, o decremento via Prisma é seguro atomicamente
     await prisma.investment.update({
         where: { id },
         data: { currentAmount: { decrement: amount } }

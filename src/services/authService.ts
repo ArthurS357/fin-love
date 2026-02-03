@@ -48,11 +48,17 @@ export async function loginService(data: LoginInput) {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    // Verifica senha
+    const isValid = user && (await bcrypt.compare(password, user.password));
+
+    if (!isValid) {
+        // SEGURANÇA: Delay artificial de 1s para mitigar ataques de força bruta
+        // Isso impede que atacantes testem milhares de senhas por segundo
+        await new Promise(resolve => setTimeout(resolve, 1000));
         throw new Error('Credenciais inválidas.');
     }
 
-    const token = await generateToken(user.id);
+    const token = await generateToken(user!.id);
     return { token, user };
 }
 
@@ -60,7 +66,11 @@ export async function updatePasswordService(userId: string, data: PasswordInput)
     const { currentPassword, newPassword } = data;
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !(await bcrypt.compare(currentPassword, user.password))) {
+
+    const isValid = user && (await bcrypt.compare(currentPassword, user.password));
+
+    if (!isValid) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Delay de segurança também aqui
         throw new Error('Senha atual incorreta.');
     }
 
